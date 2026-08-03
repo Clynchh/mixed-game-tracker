@@ -28,32 +28,57 @@
   </div>
 {% else %}
 
-  <div class="mode-tabs">
-    <a href="{{ url_for('dashboard', mode='cash') }}" class="mode-tab {{ 'active' if mode == 'cash' }}">
-      Cash <span class="count">{{ mode_counts.cash }}</span>
-    </a>
-    <a href="{{ url_for('dashboard', mode='tournament') }}" class="mode-tab {{ 'active' if mode == 'tournament' }}">
-      Tournaments <span class="count">{{ mode_counts.tournament }}</span>
-    </a>
+  <div class="tabs-row">
+    <div class="mode-tabs">
+      <a href="{{ url_for('dashboard', mode='cash', unit=unit) }}" class="mode-tab {{ 'active' if mode == 'cash' }}">
+        Cash <span class="count">{{ mode_counts.cash }}</span>
+      </a>
+      <a href="{{ url_for('dashboard', mode='tournament', unit=unit) }}" class="mode-tab {{ 'active' if mode == 'tournament' }}">
+        Tournaments <span class="count">{{ mode_counts.tournament }}</span>
+      </a>
+    </div>
+    <div class="unit-toggle">
+      <a href="{{ url_for('dashboard', mode=mode, game_type=selected_game_type, tag=selected_tag, unit='raw') }}"
+         class="unit-opt {{ 'active' if unit == 'raw' }}">{{ '$' if mode == 'cash' else 'chips' }}</a>
+      <a href="{{ url_for('dashboard', mode=mode, game_type=selected_game_type, tag=selected_tag, unit='bb') }}"
+         class="unit-opt {{ 'active' if unit == 'bb' }}">BB</a>
+    </div>
   </div>
 
+  {% if mode == 'tournament' and tourney_results and tourney_results.n %}
+  <div class="overall-banner tourney-banner">
+    <div><span class="big {{ 'pos' if (tourney_results.net or 0) >= 0 else 'neg' }}">{{ '%.2f'|format(tourney_results.net or 0) }}</span> <span class="lbl">$ result</span></div>
+    <div><span class="big">{{ '%.2f'|format(tourney_results.total_buyin or 0) }}</span> <span class="lbl">buy-ins</span></div>
+    <div><span class="big">{{ '%.2f'|format(tourney_results.total_payout or 0) }}</span> <span class="lbl">cashes</span></div>
+    <div><span class="big">{{ tourney_results.itm or 0 }}/{{ tourney_results.completed or 0 }}</span> <span class="lbl">itm</span></div>
+    <div><span class="big">{{ tourney_results.n }}</span> <span class="lbl">tournaments</span></div>
+  </div>
+  {% elif mode == 'tournament' %}
+  <div class="empty-state" style="padding:20px;margin-bottom:22px;">
+    <p>No tournament finish/payout data yet &mdash; this fills in as hands with a "finished the tournament" line get imported.</p>
+  </div>
+  {% endif %}
+
+  {% set overall_net = overall.net_bb if (unit == 'bb' and overall.net_bb is not none) else overall.net %}
+  {% set net_label = 'net (cash, $)' if mode == 'cash' else 'in-hand chip net (not $ result)' %}
   <div class="overall-banner">
-    <div><span class="big {{ 'pos' if overall.net and overall.net >= 0 else 'neg' }}">{{ '%.2f'|format(overall.net or 0) }}</span> <span class="lbl">net ({{ mode }})</span></div>
+    <div><span class="big {{ 'pos' if (overall_net or 0) >= 0 else 'neg' }}">{{ '%.2f'|format(overall_net or 0) }}{{ ' bb' if unit == 'bb' and overall.net_bb is not none else '' }}</span> <span class="lbl">{{ net_label }}</span></div>
     <div><span class="big">{{ overall.hands }}</span> <span class="lbl">hands tracked</span></div>
   </div>
 
   <div class="stats-row">
-    <a href="{{ url_for('dashboard', tag=selected_tag, mode=mode) }}" class="stat-card {{ 'active' if not selected_game_type }}" style="text-decoration:none;color:inherit;">
+    <a href="{{ url_for('dashboard', tag=selected_tag, mode=mode, unit=unit) }}" class="stat-card {{ 'active' if not selected_game_type }}" style="text-decoration:none;color:inherit;">
       <div class="label">All games</div>
       <div class="value">{{ overall.hands }}</div>
-      <div class="sub {{ 'pos' if overall.net and overall.net >= 0 else 'neg' }}">{{ '%.2f'|format(overall.net or 0) }}</div>
+      <div class="sub {{ 'pos' if (overall_net or 0) >= 0 else 'neg' }}">{{ '%.2f'|format(overall_net or 0) }}</div>
     </a>
     {% for s in stats %}
-    <a href="{{ url_for('dashboard', game_type=s.game_type, tag=selected_tag, mode=mode) }}"
+    {% set s_net = s.net_bb if (unit == 'bb' and s.net_bb is not none) else s.net %}
+    <a href="{{ url_for('dashboard', game_type=s.game_type, tag=selected_tag, mode=mode, unit=unit) }}"
        class="stat-card {{ 'active' if selected_game_type == s.game_type }}" style="text-decoration:none;color:inherit;">
       <div class="label">{{ s.game_type }}</div>
       <div class="value">{{ s.hands }}</div>
-      <div class="sub {{ 'pos' if s.net and s.net >= 0 else 'neg' }}">{{ '%.2f'|format(s.net or 0) }}</div>
+      <div class="sub {{ 'pos' if (s_net or 0) >= 0 else 'neg' }}">{{ '%.2f'|format(s_net or 0) }}</div>
     </a>
     {% endfor %}
   </div>
@@ -61,6 +86,7 @@
   {% if stats %}
   <form class="controls" method="get">
     <input type="hidden" name="mode" value="{{ mode }}">
+    <input type="hidden" name="unit" value="{{ unit }}">
     {% if selected_game_type %}<input type="hidden" name="game_type" value="{{ selected_game_type }}">{% endif %}
     <input type="text" name="search" placeholder="search raw hand text..." value="{{ search }}">
     <select name="tag" onchange="this.form.submit()">
@@ -71,7 +97,7 @@
     </select>
     <button type="submit">Filter</button>
     {% if selected_game_type or selected_tag or search %}
-      <a href="{{ url_for('dashboard', mode=mode) }}" class="btn btn-ghost">Clear</a>
+      <a href="{{ url_for('dashboard', mode=mode, unit=unit) }}" class="btn btn-ghost">Clear</a>
     {% endif %}
     <span style="flex:1"></span>
     <button type="button" class="btn-ghost" onclick="rescanNow()">Rescan now</button>
@@ -92,12 +118,13 @@
     </thead>
     <tbody>
       {% for h in hands %}
+      {% set row_net = (h.hero_net / h.big_blind) if (unit == 'bb' and h.big_blind) else h.hero_net %}
       <tr onclick="window.location='{{ url_for('hand_detail', hand_id=h.hand_id) }}'" style="cursor:pointer">
         <td>{{ h.date_played[:16] if h.date_played else '' }}</td>
         <td class="game">{{ h.game_type }} <span class="pill">{{ h.limit_type }}</span></td>
         <td>{{ h.stakes }}</td>
         <td>{{ h.hero_cards }}</td>
-        <td class="{{ 'pos' if h.hero_net >= 0 else 'neg' }}">{{ '%.2f'|format(h.hero_net) }}</td>
+        <td class="{{ 'pos' if row_net >= 0 else 'neg' }}">{{ '%.2f'|format(row_net) }}{{ ' bb' if (unit == 'bb' and h.big_blind) else '' }}</td>
         <td></td>
       </tr>
       {% endfor %}

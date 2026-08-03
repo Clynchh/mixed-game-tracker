@@ -37,7 +37,29 @@ STREET_HEADER_RE = re.compile(
 # are posted) rather than a boundary BETWEEN two rounds - flushing here would wrongly
 # split a blind post from a raise that happens later in that same round.
 NON_FLUSH_HEADERS = {"hole cards", "pre-draw"}
-DEALT_TO_RE = re.compile(r"^Dealt to (\S+) \[([^\]]*)\]", re.MULTILINE)
+# Captures every bracket group on the line - stud/draw games re-deal hero each
+# street as "Dealt to X [previously known] [new card]", and only grabbing the
+# first bracket (as a single-group regex would) misses every card dealt after
+# 3rd street/first draw.
+DEALT_TO_RE = re.compile(r"^Dealt to (\S+)((?:\s*\[[^\]]*\])+)", re.MULTILINE)
+BRACKET_RE = re.compile(r"\[([^\]]*)\]")
+
+# Big blind / blind-level size: cash stakes look like "$0.01/$0.02 USD", tournament
+# levels look like "600/1200" (chips, no $ sign) - same pattern works for both, take
+# the second (larger) number.
+BLIND_SIZE_RE = re.compile(r"\$?([\d,]+(?:\.\d+)?)\s*/\s*\$?([\d,]+(?:\.\d+)?)")
+
+# Tournament buy-in, e.g. "$50+$5" (buy-in + fee) or "$50+$5+$5" (+bounty) at the
+# very start of the game description. Free/satellite tournaments with no $ prefix
+# won't match, which is fine - buy_in stays unknown rather than wrong.
+BUYIN_RE = re.compile(r"^\$([\d,.]+(?:\+\$[\d,.]+)*)")
+
+# Tournament elimination/finish line, e.g. "clynchh finished the tournament in 76th
+# place" or "... in 1st place and received $110.00".
+FINISH_RE = re.compile(
+    r"^(\S+) finished the tournament in (\d+)\w{2} place(?:,? and received \$([\d,.]+))?",
+    re.MULTILINE,
+)
 
 # Money-moving action patterns: (regex, mode) where mode is
 # 'add'  -> add amount to current street total
@@ -114,12 +136,24 @@ def split_hands(text):
     return [c.strip() for c in chunks if c.strip().startswith("PokerStars")]
 
 
-def _find_hero(text, seats):
-    """Hero = whoever has a 'Dealt to X [...]' line before showdown."""
-    m = DEALT_TO_RE.search(text)
-    if m:
-        return m.group(1), m.group(2)
-    return None, None
+def _find_hero(text, hero_username=None):
+    """Hero = the configured PokerStars username, if set.
+
+    In Hold'em/Omaha only hero's own hole cards appear in "Dealt to X [...]"
+    lines, so "first match in the file" used to be a safe proxy for hero. That
+    breaks in stud/razz games, where every player gets a "Dealt to X [...]"
+    line each street showing their up-cards - the first one is just whoever's
+    in the lowest seat number, not hero. With a configured username we match
+    it directly instead of guessing by position.
+    """
+    matches = DEALT_TO_RE.findall(text)
+    if hero_username:
+        matches = [m for m in matches if m[0] == hero_username]
+    if not matches:
+        return None, None
+    name, brackets = matches[-1]  # last = most complete card set across streets
+    cards = " ".join(BRACKET_RE.findall(brackets))
+    return name, cards
 
 
 def _compute_money(text, hero_name):
@@ -187,7 +221,7 @@ def _compute_money(text, hero_name):
     return invested, collected, pot_total
 
 
-def parse_hand(raw_text, source_file=""):
+def parse_hand(raw_text, source_file="", hero_username=None):
     """Parse a single hand block. Returns dict or None if unparseable."""
     header = HEADER_RE.search(raw_text)
     if not header:
@@ -201,17 +235,39 @@ def parse_hand(raw_text, source_file=""):
     game_type = _classify(GAME_TYPE_MAP, game_desc)
     limit_type = _classify(LIMIT_TYPE_MAP, game_desc, default="")
 
-    stakes_m = re.search(r"\(([^)]+)\)", game_desc)
-    stakes = stakes_m.group(1) if stakes_m else ""
+    # Tournament game_desc has two parenthesized groups - "(Hold'em Limit)" and
+    # the blind level "(600/1200)". Cash games only ever have the one. The
+    # blind level (last group) is what's actually useful to show/compute from.
+    parens = re.findall(r"\(([^)]+)\)", game_desc)
+    stakes = (parens[-1] if tourney_id else parens[0]) if parens else ""
+
+    big_blind = None
+    bb_m = BLIND_SIZE_RE.search(stakes)
+    if bb_m:
+        big_blind = _parse_money(bb_m.group(2))
+
+    tourney_buyin = None
+    if tourney_id:
+        buyin_m = BUYIN_RE.match(game_desc.strip())
+        if buyin_m:
+            tourney_buyin = sum(_parse_money(p.lstrip("$")) for p in buyin_m.group(1).split("+"))
 
     table_m = TABLE_RE.search(raw_text)
     table_name = table_m.group("table") if table_m else ""
 
     seats = SEAT_RE.findall(raw_text)
-    hero_name, hero_cards = _find_hero(raw_text, seats)
+    hero_name, hero_cards = _find_hero(raw_text, hero_username)
 
     invested, collected, pot_total = _compute_money(raw_text, hero_name)
     net = round(collected - invested, 4)
+
+    tourney_finish_place = None
+    tourney_payout = None
+    if tourney_id and hero_name:
+        fm = FINISH_RE.search(raw_text)
+        if fm and fm.group(1) == hero_name:
+            tourney_finish_place = int(fm.group(2))
+            tourney_payout = _parse_money(fm.group(3)) if fm.group(3) else 0.0
 
     return {
         "hand_id": hand_id,
@@ -228,19 +284,24 @@ def parse_hand(raw_text, source_file=""):
         "hero_collected": round(collected, 4),
         "hero_net": net,
         "pot_total": pot_total,
+        "big_blind": big_blind,
         "num_players": len(seats),
         "source_file": source_file,
         "raw_text": raw_text,
+        "tourney_game_desc": game_desc,
+        "tourney_buyin": tourney_buyin,
+        "tourney_finish_place": tourney_finish_place,
+        "tourney_payout": tourney_payout,
     }
 
 
-def parse_file(filepath):
+def parse_file(filepath, hero_username=None):
     """Parse every hand in a file. Returns list of hand dicts (skips unparseable blocks)."""
     with open(filepath, "r", encoding="utf-8-sig", errors="replace") as f:
         text = f.read()
     results = []
     for block in split_hands(text):
-        parsed = parse_hand(block, source_file=filepath)
+        parsed = parse_hand(block, source_file=filepath, hero_username=hero_username)
         if parsed:
             results.append(parsed)
     return results

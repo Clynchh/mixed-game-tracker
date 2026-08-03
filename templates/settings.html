@@ -14,6 +14,17 @@
     interact with the client while you play. Find yours in PokerStars:
     Settings &rarr; Hand History &rarr; Hand History Location.
   </div>
+
+  <label for="hero_username">Your PokerStars username</label>
+  <input type="text" id="hero_username" name="hero_username" value="{{ username }}" placeholder="e.g. clynchh">
+  <div class="help">
+    Required for accurate results in stud/razz games. Hold'em and Omaha hands only ever
+    show your own hole cards, so guessing "hero" by position works fine &mdash; but stud/razz
+    hands show every player's up-cards each street, so without your exact username the
+    tracker can misidentify another player at the table as you and get your net result
+    completely wrong.
+  </div>
+
   <button type="submit">Save &amp; scan</button>
 </form>
 {% endblock %}

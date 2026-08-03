@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS hands (
     hero_collected REAL,
     hero_net      REAL,
     pot_total     REAL,
+    big_blind     REAL,
     num_players   INTEGER,
     source_file   TEXT,
     raw_text      TEXT,
@@ -53,6 +54,19 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT
 );
 
+-- Real-money tournament results, separate from the chip-level hero_net on
+-- individual hands (tournament chips aren't cash until you finish and cash
+-- out). One row per tournament_id, filled in as hands from it are parsed.
+CREATE TABLE IF NOT EXISTS tournaments (
+    tournament_id TEXT PRIMARY KEY,
+    game_desc     TEXT,
+    buy_in        REAL,
+    date_played   TEXT,
+    finish_place  INTEGER,
+    payout        REAL,
+    updated_at    TEXT DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_hands_game_type ON hands(game_type);
 CREATE INDEX IF NOT EXISTS idx_hands_date ON hands(date_played);
 CREATE INDEX IF NOT EXISTS idx_tags_hand ON tags(hand_id);
@@ -72,25 +86,85 @@ def get_conn():
         conn.close()
 
 
+def _migrate(conn):
+    cols = [r["name"] for r in conn.execute("PRAGMA table_info(hands)").fetchall()]
+    if "big_blind" not in cols:
+        conn.execute("ALTER TABLE hands ADD COLUMN big_blind REAL")
+
+
 def init_db():
     with get_conn() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
 
 
 def upsert_hand(hand: dict) -> bool:
-    """Insert a parsed hand. Returns True if it was newly inserted."""
+    """Insert or update a parsed hand. Returns True if it was newly inserted
+    (as opposed to overwriting a hand seen before, e.g. after a parser fix)."""
     with get_conn() as conn:
-        cur = conn.execute(
-            """INSERT OR IGNORE INTO hands
+        existed = conn.execute("SELECT 1 FROM hands WHERE hand_id=?", (hand["hand_id"],)).fetchone() is not None
+        conn.execute(
+            """INSERT INTO hands
                (hand_id, game_type, limit_type, stakes, is_tournament, tournament_id,
                 table_name, date_played, hero_name, hero_cards, hero_invested,
-                hero_collected, hero_net, pot_total, num_players, source_file, raw_text)
+                hero_collected, hero_net, pot_total, big_blind, num_players, source_file, raw_text)
                VALUES (:hand_id, :game_type, :limit_type, :stakes, :is_tournament, :tournament_id,
                        :table_name, :date_played, :hero_name, :hero_cards, :hero_invested,
-                       :hero_collected, :hero_net, :pot_total, :num_players, :source_file, :raw_text)""",
+                       :hero_collected, :hero_net, :pot_total, :big_blind, :num_players, :source_file, :raw_text)
+               ON CONFLICT(hand_id) DO UPDATE SET
+                 game_type=excluded.game_type, limit_type=excluded.limit_type, stakes=excluded.stakes,
+                 is_tournament=excluded.is_tournament, tournament_id=excluded.tournament_id,
+                 table_name=excluded.table_name, date_played=excluded.date_played,
+                 hero_name=excluded.hero_name, hero_cards=excluded.hero_cards,
+                 hero_invested=excluded.hero_invested, hero_collected=excluded.hero_collected,
+                 hero_net=excluded.hero_net, pot_total=excluded.pot_total, big_blind=excluded.big_blind,
+                 num_players=excluded.num_players, source_file=excluded.source_file, raw_text=excluded.raw_text""",
             hand,
         )
-        return cur.rowcount > 0
+        return not existed
+
+
+def upsert_tournament_shell(tournament_id, game_desc, buy_in, date_played):
+    """Record a tournament's identity/buy-in the first time we see any hand from it."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO tournaments (tournament_id, game_desc, buy_in, date_played)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(tournament_id) DO NOTHING""",
+            (tournament_id, game_desc, buy_in, date_played),
+        )
+
+
+def set_tournament_result(tournament_id, finish_place, payout):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE tournaments SET finish_place=?, payout=?, updated_at=datetime('now') WHERE tournament_id=?",
+            (finish_place, payout, tournament_id),
+        )
+
+
+def tournament_stats():
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT tournament_id, game_desc, buy_in, date_played, finish_place, payout,
+                      (COALESCE(payout, 0) - COALESCE(buy_in, 0)) as net
+               FROM tournaments ORDER BY date_played DESC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def tournament_overall():
+    with get_conn() as conn:
+        row = conn.execute(
+            """SELECT COUNT(*) as n,
+                      SUM(buy_in) as total_buyin,
+                      SUM(payout) as total_payout,
+                      SUM(COALESCE(payout, 0) - COALESCE(buy_in, 0)) as net,
+                      SUM(CASE WHEN payout > 0 THEN 1 ELSE 0 END) as itm,
+                      SUM(CASE WHEN finish_place IS NOT NULL THEN 1 ELSE 0 END) as completed
+               FROM tournaments"""
+        ).fetchone()
+        return dict(row)
 
 
 def get_file_state(filepath):
@@ -194,6 +268,7 @@ def stats_by_game_type(is_tournament=None):
                       COUNT(*) as hands,
                       SUM(hero_net) as net,
                       AVG(hero_net) as avg_net,
+                      SUM(CASE WHEN big_blind > 0 THEN hero_net / big_blind ELSE NULL END) as net_bb,
                       SUM(CASE WHEN hero_net > 0 THEN 1 ELSE 0 END) as won,
                       SUM(CASE WHEN hero_net < 0 THEN 1 ELSE 0 END) as lost
                FROM hands"""
@@ -208,7 +283,9 @@ def stats_by_game_type(is_tournament=None):
 
 
 def overall_stats(is_tournament=None):
-    query = "SELECT COUNT(*) as hands, SUM(hero_net) as net FROM hands"
+    query = """SELECT COUNT(*) as hands, SUM(hero_net) as net,
+                      SUM(CASE WHEN big_blind > 0 THEN hero_net / big_blind ELSE NULL END) as net_bb
+               FROM hands"""
     params = []
     if is_tournament is not None:
         query += " WHERE is_tournament = ?"

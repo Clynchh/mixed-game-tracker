@@ -32,6 +32,12 @@ something like:
 - Linux: `~/.PokerStars/HandHistory/<YourScreenName>/`
 - Windows: `C:\Users\<you>\AppData\Local\PokerStars\HandHistory\<YourScreenName>\`
 
+Also set your **PokerStars username** in Settings. Hold'em/Omaha hands only
+ever reveal your own hole cards, so guessing "hero" by file position works
+fine there — but stud/razz hands reveal every player's up-cards each street,
+so without your exact username MixTrack can misidentify another player at
+the table as you and get your net result completely wrong.
+
 Once set, MixTrack scans the folder every 15 seconds for new/changed `.txt`
 files. It's safe to point it at a folder you're actively playing in — it
 only reads, never writes there.
@@ -48,11 +54,16 @@ only reads, never writes there.
   are the dedup key, so re-scanning is always safe).
 - `db.py` / `tracker.db` — everything lives in one SQLite file next to the
   app. Back it up like any other file if you want to keep history.
-- `app.py` — the dashboard: per-game-type stat cards, a filterable hand
-  list, and a hand detail view where you tag hands with free-text labels
-  (e.g. `bad-fold`, `missed-value`, `ante-steal-spot`) plus an optional
-  note. Filter the dashboard by tag later to review a specific leak across
-  sessions.
+- `app.py` — the dashboard: separate Cash / Tournament tabs (results are not
+  comparable — tournament chips aren't cash until you finish), per-game-type
+  stat cards, a $-or-BB display toggle, and a filterable hand list. Each hand
+  has a detail view where you tag it with free-text labels (e.g. `bad-fold`,
+  `missed-value`, `ante-steal-spot`) plus an optional note. Filter the
+  dashboard by tag later to review a specific leak across sessions.
+- Tournament results (buy-in vs. actual cash payout) are tracked separately
+  from hand-level chip swings, since chip net within a tournament isn't real
+  money — only what you cash out for is. This shows as its own banner on the
+  Tournament tab.
 
 ## Extending it
 

@@ -55,12 +55,40 @@ header.top .meta {
 
 main { padding: 24px 28px 60px; max-width: 1180px; margin: 0 auto; }
 
+.tabs-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 18px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
 .mode-tabs {
   display: flex;
   gap: 4px;
-  margin-bottom: 18px;
-  border-bottom: 1px solid var(--border);
 }
+.unit-toggle {
+  display: flex;
+  gap: 2px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px;
+  margin-bottom: 6px;
+}
+.unit-opt {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  border-radius: 4px;
+}
+.unit-opt:hover { color: var(--text); text-decoration: none; }
+.unit-opt.active { background: var(--gold-dim); color: #14161b; }
+.unit-opt.active:hover { color: #14161b; }
+
+.tourney-banner { border-color: var(--gold-dim); margin-bottom: 12px; }
 .mode-tab {
   padding: 9px 16px;
   font-size: 13px;

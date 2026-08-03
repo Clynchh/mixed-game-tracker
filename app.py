@@ -9,13 +9,18 @@ app = Flask(__name__)
 db.init_db()
 
 DEFAULT_FOLDER = os.environ.get("HAND_HISTORY_DIR", "")
+DEFAULT_USERNAME = os.environ.get("POKERSTARS_USERNAME", "")
 
 
 def get_folder():
     return db.get_setting("hand_history_dir", DEFAULT_FOLDER)
 
 
-fw = watcher.FolderWatcher(get_folder)
+def get_username():
+    return db.get_setting("hero_username", DEFAULT_USERNAME)
+
+
+fw = watcher.FolderWatcher(get_folder, get_username)
 
 
 @app.route("/")
@@ -33,11 +38,18 @@ def dashboard():
         mode = "tournament" if tourney_count > cash_count else "cash"
     is_tournament = 1 if mode == "tournament" else 0
 
+    unit = request.args.get("unit")
+    if unit not in ("raw", "bb"):
+        unit = "raw"
+
     hands = db.list_hands(game_type=game_type, tag=tag, search=search, is_tournament=is_tournament, limit=100)
     stats = db.stats_by_game_type(is_tournament=is_tournament)
     overall = db.overall_stats(is_tournament=is_tournament)
     tags = db.all_tags(is_tournament=is_tournament)
     game_types = sorted({s["game_type"] for s in stats})
+
+    tourney_results = db.tournament_overall() if mode == "tournament" else None
+
     return render_template(
         "dashboard.html",
         hands=hands,
@@ -50,8 +62,10 @@ def dashboard():
         selected_tag=tag,
         search=search or "",
         mode=mode,
+        unit=unit,
         mode_counts={"cash": cash_count, "tournament": tourney_count},
         total_hands=cash_count + tourney_count,
+        tourney_results=tourney_results,
         last_scan_new=fw.last_scan_new,
         last_scan_time=fw.last_scan_time,
     )
@@ -86,10 +100,12 @@ def remove_tag(hand_id):
 def settings():
     if request.method == "POST":
         folder = request.form.get("hand_history_dir", "").strip()
+        username = request.form.get("hero_username", "").strip()
         db.set_setting("hand_history_dir", folder)
-        watcher.scan_folder(folder)  # scan immediately so it's not a 15s wait
+        db.set_setting("hero_username", username)
+        watcher.scan_folder(folder, hero_username=username)  # scan immediately so it's not a 15s wait
         return redirect(url_for("dashboard"))
-    return render_template("settings.html", folder=get_folder())
+    return render_template("settings.html", folder=get_folder(), username=get_username())
 
 
 @app.route("/api/scan-status")
@@ -106,7 +122,7 @@ def scan_status():
 @app.route("/api/rescan", methods=["POST"])
 def rescan():
     folder = get_folder()
-    n = watcher.scan_folder(folder)
+    n = watcher.scan_folder(folder, hero_username=get_username())
     return jsonify({"new_hands": n})
 
 
