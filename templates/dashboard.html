@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · MixTrack{% endblock %}
+
+{% block header_meta %}
+  {% if folder %}
+    <span>watching <code>{{ folder }}</code></span>
+    {% if last_scan_time %}<span>{{ hands|length }} shown</span>{% endif %}
+  {% else %}
+    <span class="neg">no folder configured</span>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+
+{% if not folder %}
+  <div class="empty-state">
+    <h3>Point MixTrack at your hand history folder</h3>
+    <p>In PokerStars: Settings &rarr; Hand History &rarr; make sure history saving is on, then note the folder.</p>
+    <p><a href="/settings" class="btn">Set folder in Settings</a></p>
+  </div>
+{% elif overall.hands is none or overall.hands == 0 %}
+  <div class="empty-state">
+    <h3>No hands imported yet</h3>
+    <p>Watching <code>{{ folder }}</code> &mdash; new hands will appear automatically within ~15s of being saved.</p>
+    <form method="post" action="/api/rescan" id="rescan-form">
+      <button type="button" onclick="rescanNow()">Scan now</button>
+    </form>
+  </div>
+{% else %}
+
+  <div class="overall-banner">
+    <div><span class="big {{ 'pos' if overall.net and overall.net >= 0 else 'neg' }}">{{ '%.2f'|format(overall.net or 0) }}</span> <span class="lbl">net (all games)</span></div>
+    <div><span class="big">{{ overall.hands }}</span> <span class="lbl">hands tracked</span></div>
+  </div>
+
+  <div class="stats-row">
+    <a href="{{ url_for('dashboard', tag=selected_tag) }}" class="stat-card {{ 'active' if not selected_game_type }}" style="text-decoration:none;color:inherit;">
+      <div class="label">All games</div>
+      <div class="value">{{ overall.hands }}</div>
+      <div class="sub {{ 'pos' if overall.net and overall.net >= 0 else 'neg' }}">{{ '%.2f'|format(overall.net or 0) }}</div>
+    </a>
+    {% for s in stats %}
+    <a href="{{ url_for('dashboard', game_type=s.game_type, tag=selected_tag) }}"
+       class="stat-card {{ 'active' if selected_game_type == s.game_type }}" style="text-decoration:none;color:inherit;">
+      <div class="label">{{ s.game_type }}</div>
+      <div class="value">{{ s.hands }}</div>
+      <div class="sub {{ 'pos' if s.net and s.net >= 0 else 'neg' }}">{{ '%.2f'|format(s.net or 0) }}</div>
+    </a>
+    {% endfor %}
+  </div>
+
+  <form class="controls" method="get">
+    {% if selected_game_type %}<input type="hidden" name="game_type" value="{{ selected_game_type }}">{% endif %}
+    <input type="text" name="search" placeholder="search raw hand text..." value="{{ search }}">
+    <select name="tag" onchange="this.form.submit()">
+      <option value="">all tags</option>
+      {% for t in tags %}
+      <option value="{{ t.tag }}" {{ 'selected' if selected_tag == t.tag }}>{{ t.tag }} ({{ t.n }})</option>
+      {% endfor %}
+    </select>
+    <button type="submit">Filter</button>
+    {% if selected_game_type or selected_tag or search %}
+      <a href="/" class="btn btn-ghost">Clear</a>
+    {% endif %}
+    <span style="flex:1"></span>
+    <button type="button" class="btn-ghost" onclick="rescanNow()">Rescan now</button>
+  </form>
+
+  {% if hands %}
+  <table class="hands">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Game</th>
+        <th>Stakes</th>
+        <th>Hero cards</th>
+        <th>Net</th>
+        <th>Tags</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for h in hands %}
+      <tr onclick="window.location='{{ url_for('hand_detail', hand_id=h.hand_id) }}'" style="cursor:pointer">
+        <td>{{ h.date_played[:16] if h.date_played else '' }}</td>
+        <td class="game">{{ h.game_type }} <span class="pill">{{ h.limit_type }}</span></td>
+        <td>{{ h.stakes }}</td>
+        <td>{{ h.hero_cards }}</td>
+        <td class="{{ 'pos' if h.hero_net >= 0 else 'neg' }}">{{ '%.2f'|format(h.hero_net) }}</td>
+        <td></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state"><p>No hands match this filter.</p></div>
+  {% endif %}
+
+{% endif %}
+
+<script>
+function rescanNow() {
+  fetch('/api/rescan', {method: 'POST'}).then(() => location.reload());
+}
+</script>
+{% endblock %}

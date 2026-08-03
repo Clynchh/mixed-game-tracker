@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Hand {{ hand.hand_id }} · MixTrack{% endblock %}
+
+{% block content %}
+<a href="javascript:history.back()" class="back-link">&larr; back</a>
+
+<div class="hand-view">
+  <div class="hand-meta">
+    <div><span class="k">Game</span>{{ hand.game_type }} <span class="pill">{{ hand.limit_type }}</span></div>
+    <div><span class="k">Stakes</span>{{ hand.stakes }}</div>
+    <div><span class="k">Date</span>{{ hand.date_played }}</div>
+    <div><span class="k">Hero cards</span>{{ hand.hero_cards }}</div>
+    <div><span class="k">Net</span><span class="{{ 'pos' if hand.hero_net >= 0 else 'neg' }}">{{ '%.2f'|format(hand.hero_net) }}</span></div>
+    <div><span class="k">Table</span>{{ hand.table_name }}</div>
+  </div>
+
+  <pre class="raw-hand">{{ hand.raw_text }}</pre>
+
+  <div class="tag-section">
+    <strong>Tags</strong>
+    <div class="tag-list">
+      {% for t in hand.tags %}
+      <span class="tag-item">
+        {{ t.tag }}{% if t.note %} &mdash; {{ t.note }}{% endif %}
+        <form method="post" action="{{ url_for('remove_tag', hand_id=hand.hand_id) }}">
+          <input type="hidden" name="tag" value="{{ t.tag }}">
+          <button type="submit" class="remove" title="remove tag">&times;</button>
+        </form>
+      </span>
+      {% else %}
+      <span style="color:var(--text-dim);font-size:13px;">no tags yet</span>
+      {% endfor %}
+    </div>
+    <form class="tag-form" method="post" action="{{ url_for('add_tag', hand_id=hand.hand_id) }}">
+      <input type="text" name="tag" placeholder="e.g. bad-fold, ante-steal-spot, misread-board" required>
+      <input type="text" name="note" placeholder="note (optional)">
+      <button type="submit">Add tag</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
