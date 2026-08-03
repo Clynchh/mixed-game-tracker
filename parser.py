@@ -18,7 +18,10 @@ HEADER_RE = re.compile(
     r"^PokerStars (?:Hand|Game) #(?P<hand_id>\d+):\s*"
     r"(?:Tournament #(?P<tourney_id>\d+),\s*)?"
     r"(?P<game_desc>.+?)\s*-\s*"
-    r"(?P<date>\d{4}/\d{2}/\d{2}[ \d:]+(?:ET|CET|GMT)?)\s*$",
+    r"(?P<date>\d{4}/\d{2}/\d{2}[ \d:]+)"
+    r"[A-Z]*"  # local timezone abbreviation, e.g. ET, WET, CET, GMT, BST
+    r"(?:\s*\[[^\]]*\])?"  # optional bracketed duplicate, e.g. [2026/08/03 14:06:32 ET]
+    r"\s*$",
     re.MULTILINE,
 )
 
@@ -233,7 +236,7 @@ def parse_hand(raw_text, source_file=""):
 
 def parse_file(filepath):
     """Parse every hand in a file. Returns list of hand dicts (skips unparseable blocks)."""
-    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+    with open(filepath, "r", encoding="utf-8-sig", errors="replace") as f:
         text = f.read()
     results = []
     for block in split_hands(text):
