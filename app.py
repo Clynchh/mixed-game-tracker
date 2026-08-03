@@ -65,12 +65,30 @@ def dashboard():
     # slice of hands the table below it does.
     series_hands = db.list_hands(game_type=game_type, tag=tag, search=search, is_tournament=is_tournament,
                                   limit=None, sort="date", order="asc")
+    if unit == "bb":
+        series_hands = [h for h in series_hands if h["big_blind"]]
     hand_values = [
-        (h["hero_net"] / h["big_blind"]) if (unit == "bb" and h["big_blind"]) else h["hero_net"]
+        (h["hero_net"] / h["big_blind"]) if (unit == "bb") else h["hero_net"]
         for h in series_hands
-        if unit != "bb" or h["big_blind"]
     ]
-    hand_graph_svg = charts.line_svg(charts.cumulative(hand_values))
+    main_cum = charts.cumulative(hand_values)
+
+    # Showdown/non-showdown split, running cumulative on the same x-axis as
+    # the main line (each only advances on its own hand type, flat otherwise)
+    # so at any point sd_cum[i] + nonsd_cum[i] == main_cum[i].
+    sd_cum, nonsd_cum = [], []
+    sd_running = nonsd_running = 0.0
+    for h, v in zip(series_hands, hand_values):
+        if h["went_to_showdown"]:
+            sd_running += v
+        else:
+            nonsd_running += v
+        sd_cum.append(sd_running)
+        nonsd_cum.append(nonsd_running)
+
+    hand_graph_svg = charts.multi_line_svg(
+        main_cum, overlays=[(sd_cum, "#4a90d9"), (nonsd_cum, "#c0564f")]
+    )
 
     tourney_results = None
     tourney_roi = None

@@ -83,6 +83,7 @@ COLLECTED_RE = re.compile(r"^(\S+) collected \$?([\d,.]+) from")
 UNCALLED_RE = re.compile(r"^Uncalled bet \(\$?([\d,.]+)\) returned to (\S+)")
 POT_TOTAL_RE = re.compile(r"^Total pot \$?([\d,.]+)")
 SEAT_COUNT_RE = re.compile(r"^Seat \d+:")
+SHOWDOWN_RE = re.compile(r"^\*\*\* SHOW DOWN \*\*\*", re.MULTILINE)
 
 # Pot-type classification (limped / raised / 3-bet / 4-bet, or stud's
 # limped / completed / 3-bet / 4-bet) is based on the opening betting round
@@ -194,6 +195,18 @@ def _classify_pot_type(text, game_type):
     return f"{raises + 1}-bet+"
 
 
+def _went_to_showdown(text, hero_name):
+    """Hero reached showdown = didn't fold anywhere in the hand AND the hand
+    actually had a showdown (if hero never folds but everyone else does, the
+    hand ends uncontested with no showdown - hero still "won without
+    showdown" in that case)."""
+    if not hero_name:
+        return False
+    if re.search(rf"^{re.escape(hero_name)}: folds", text, re.MULTILINE):
+        return False
+    return bool(SHOWDOWN_RE.search(text))
+
+
 def _compute_money(text, hero_name):
     """Walk the hand line by line tracking hero's per-street contribution."""
     invested = 0.0
@@ -299,6 +312,7 @@ def parse_hand(raw_text, source_file="", hero_username=None):
     invested, collected, pot_total = _compute_money(raw_text, hero_name)
     net = round(collected - invested, 4)
     pot_type = _classify_pot_type(raw_text, game_type)
+    went_to_showdown = _went_to_showdown(raw_text, hero_name)
 
     tourney_finish_place = None
     tourney_payout = None
@@ -324,6 +338,7 @@ def parse_hand(raw_text, source_file="", hero_username=None):
         "hero_net": net,
         "pot_total": pot_total,
         "pot_type": pot_type,
+        "went_to_showdown": 1 if went_to_showdown else 0,
         "big_blind": big_blind,
         "num_players": len(seats),
         "source_file": source_file,

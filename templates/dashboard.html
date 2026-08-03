@@ -82,7 +82,14 @@
       <span class="chart-title">Hands graph ({{ 'BB' if unit == 'bb' else ('$' if mode == 'cash' else 'chips') }}, cumulative)</span>
       <span class="chart-sub">{{ hand_graph_count }} hands</span>
     </div>
-    {% if hand_graph_svg %}{{ hand_graph_svg|safe }}{% else %}<div class="chart-empty">No hands to graph yet.</div>{% endif %}
+    {% if hand_graph_svg %}
+    {{ hand_graph_svg|safe }}
+    <div class="chart-legend">
+      <span><i style="background:var(--gold-dim)"></i>total</span>
+      <span><i style="background:#4a90d9"></i>with showdown</span>
+      <span><i style="background:#c0564f"></i>without showdown</span>
+    </div>
+    {% else %}<div class="chart-empty">No hands to graph yet.</div>{% endif %}
   </div>
 
   <div class="stats-row">
