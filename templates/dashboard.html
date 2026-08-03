@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import tag_cell %}
 {% block title %}Dashboard · MixTrack{% endblock %}
 
 {% block header_meta %}
@@ -73,6 +74,7 @@
   <div class="overall-banner">
     <div><span class="big {{ 'pos' if (overall_net or 0) >= 0 else 'neg' }}">{{ '%.2f'|format(overall_net or 0) }}{{ ' bb' if unit == 'bb' and overall.net_bb is not none else '' }}</span> <span class="lbl">{{ net_label }}</span></div>
     <div><span class="big">{{ overall.hands }}</span> <span class="lbl">hands tracked</span></div>
+    <div><span class="big">{{ '%.2f'|format(overall.bb_per_100) if overall.bb_per_100 is not none else 'n/a' }}</span> <span class="lbl">bb/100</span></div>
   </div>
 
   <div class="chart-card">
@@ -142,7 +144,7 @@
         <td>{{ h.stakes }}</td>
         <td>{{ h.hero_cards }}</td>
         <td class="{{ 'pos' if row_net >= 0 else 'neg' }}">{{ '%.2f'|format(row_net) }}{{ ' bb' if (unit == 'bb' and h.big_blind) else '' }}</td>
-        <td></td>
+        {{ tag_cell(h, preset_tags, preset_colors) }}
       </tr>
       {% endfor %}
     </tbody>

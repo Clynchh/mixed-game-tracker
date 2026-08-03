@@ -20,7 +20,7 @@
     <strong>Tags</strong>
     <div class="tag-list">
       {% for t in hand.tags %}
-      <span class="tag-item">
+      <span class="tag-item" {% if t.tag in preset_colors %}style="border-color:{{ preset_colors[t.tag] }};color:{{ preset_colors[t.tag] }};background:{{ preset_colors[t.tag] }}22;"{% endif %}>
         {{ t.tag }}{% if t.note %} &mdash; {{ t.note }}{% endif %}
         <form method="post" action="{{ url_for('remove_tag', hand_id=hand.hand_id) }}">
           <input type="hidden" name="tag" value="{{ t.tag }}">
@@ -31,6 +31,18 @@
       <span style="color:var(--text-dim);font-size:13px;">no tags yet</span>
       {% endfor %}
     </div>
+
+    {% set current_tags = hand.tags|map(attribute='tag')|list %}
+    <div class="quick-tags">
+      {% for name, color in preset_tags %}
+      {% set active = name in current_tags %}
+      <button type="button" class="quick-tag-btn {{ 'active' if active }}" style="--dot-color:{{ color }}"
+              onclick="toggleQuickTag('{{ hand.hand_id }}', '{{ name }}', {{ 'true' if active else 'false' }}, event)">
+        {{ name }}
+      </button>
+      {% endfor %}
+    </div>
+
     <form class="tag-form" method="post" action="{{ url_for('add_tag', hand_id=hand.hand_id) }}">
       <input type="text" name="tag" placeholder="e.g. bad-fold, ante-steal-spot, misread-board" required>
       <input type="text" name="note" placeholder="note (optional)">

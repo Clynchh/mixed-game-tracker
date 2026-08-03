@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import tag_cell %}
 {% block title %}Reports · MixTrack{% endblock %}
 
 {% block header_meta %}
@@ -7,7 +8,7 @@
 
 {% macro sort_link(col, label) -%}
   {% set next_order = 'asc' if (sort == col and order == 'desc') else 'desc' %}
-  <a href="{{ url_for('reports', mode=mode, game_type=selected_game_type, pot_type=selected_pot_type, tag=selected_tag, search=search, pot_min=pot_min, pot_max=pot_max, net_min=net_min, net_max=net_max, sort=col, order=next_order) }}"
+  <a href="{{ url_for('reports', mode=mode, game_type=selected_game_type, pot_type=selected_pot_type, tag=selected_tag, search=search, pot_min=pot_min, pot_max=pot_max, net_min=net_min, net_max=net_max, unit=unit, sort=col, order=next_order) }}"
      class="sort-link {{ 'active' if sort == col }}">
     {{ label }}{% if sort == col %}<span class="sort-arrow">{{ '&uarr;'|safe if order == 'asc' else '&darr;'|safe }}</span>{% endif %}
   </a>
@@ -15,7 +16,15 @@
 
 {% block content %}
 
-<h2 style="font-family:var(--mono);font-weight:600;margin-bottom:16px;">Reports</h2>
+<div class="tabs-row" style="border-bottom:none;margin-bottom:16px;">
+  <h2 style="font-family:var(--mono);font-weight:600;margin:0;">Reports</h2>
+  <div class="unit-toggle">
+    <a href="{{ url_for('reports', mode=mode, game_type=selected_game_type, pot_type=selected_pot_type, tag=selected_tag, search=search, pot_min=pot_min, pot_max=pot_max, net_min=net_min, net_max=net_max, sort=sort, order=order, unit='raw') }}"
+       class="unit-opt {{ 'active' if unit == 'raw' }}">$ / chips</a>
+    <a href="{{ url_for('reports', mode=mode, game_type=selected_game_type, pot_type=selected_pot_type, tag=selected_tag, search=search, pot_min=pot_min, pot_max=pot_max, net_min=net_min, net_max=net_max, sort=sort, order=order, unit='bb') }}"
+       class="unit-opt {{ 'active' if unit == 'bb' }}">BB</a>
+  </div>
+</div>
 
 <form class="controls" method="get" style="flex-wrap:wrap;">
   <select name="mode">
@@ -48,15 +57,19 @@
   <input type="number" step="any" name="net_max" placeholder="max net" value="{{ net_max if net_max is not none else '' }}" style="width:90px;">
   <input type="hidden" name="sort" value="{{ sort }}">
   <input type="hidden" name="order" value="{{ order }}">
+  <input type="hidden" name="unit" value="{{ unit }}">
   <button type="submit">Filter</button>
-  <a href="{{ url_for('reports') }}" class="btn btn-ghost">Clear</a>
+  <a href="{{ url_for('reports', unit=unit) }}" class="btn btn-ghost">Clear</a>
 </form>
 
+{% set net_display = summary.net_bb if unit == 'bb' else summary.net %}
+{% set avg_pot_display = summary.avg_pot_bb if unit == 'bb' else summary.avg_pot %}
 <div class="overall-banner">
-  <div><span class="big {{ 'pos' if summary.net >= 0 else 'neg' }}">{{ '%.2f'|format(summary.net) }}</span> <span class="lbl">net</span></div>
+  <div><span class="big {{ 'pos' if net_display >= 0 else 'neg' }}">{{ '%.2f'|format(net_display) }}{{ ' bb' if unit == 'bb' else '' }}</span> <span class="lbl">net</span></div>
   <div><span class="big">{{ summary.count }}</span> <span class="lbl">hands</span></div>
   <div><span class="big">{{ '%.1f'|format(summary.win_rate) }}%</span> <span class="lbl">won</span></div>
-  <div><span class="big">{{ '%.2f'|format(summary.avg_pot) }}</span> <span class="lbl">avg pot</span></div>
+  <div><span class="big">{{ '%.2f'|format(avg_pot_display) }}{{ ' bb' if unit == 'bb' else '' }}</span> <span class="lbl">avg pot</span></div>
+  <div><span class="big">{{ '%.2f'|format(summary.bb_per_100) if summary.bb_per_100 is not none else 'n/a' }}</span> <span class="lbl">bb/100</span></div>
 </div>
 
 {% if hands %}
@@ -69,17 +82,21 @@
       <th>{{ sort_link('pot_type', 'Pot type') }}</th>
       <th>{{ sort_link('pot', 'Pot') }}</th>
       <th>{{ sort_link('net', 'Net') }}</th>
+      <th>Tags</th>
     </tr>
   </thead>
   <tbody>
     {% for h in hands %}
+    {% set row_net = (h.hero_net / h.big_blind) if (unit == 'bb' and h.big_blind) else h.hero_net %}
+    {% set row_pot = (h.pot_total / h.big_blind) if (unit == 'bb' and h.big_blind and h.pot_total is not none) else h.pot_total %}
     <tr onclick="window.location='{{ url_for('hand_detail', hand_id=h.hand_id) }}'" style="cursor:pointer">
       <td>{{ h.date_played[:16] if h.date_played else '' }}</td>
       <td class="game">{{ h.game_type }} <span class="pill">{{ h.limit_type }}</span></td>
       <td>{{ h.stakes }}</td>
       <td><span class="pill">{{ h.pot_type }}</span></td>
-      <td>{{ '%.2f'|format(h.pot_total) if h.pot_total is not none else '' }}</td>
-      <td class="{{ 'pos' if h.hero_net >= 0 else 'neg' }}">{{ '%.2f'|format(h.hero_net) }}</td>
+      <td>{{ '%.2f'|format(row_pot) if row_pot is not none else '' }}{{ ' bb' if (unit == 'bb' and h.big_blind) else '' }}</td>
+      <td class="{{ 'pos' if row_net >= 0 else 'neg' }}">{{ '%.2f'|format(row_net) }}{{ ' bb' if (unit == 'bb' and h.big_blind) else '' }}</td>
+      {{ tag_cell(h, preset_tags, preset_colors) }}
     </tr>
     {% endfor %}
   </tbody>

@@ -205,7 +205,9 @@ SORT_COLUMNS = {
 def list_hands(game_type=None, tag=None, date_from=None, date_to=None, limit=200, offset=0, search=None,
                 is_tournament=None, pot_type=None, pot_min=None, pot_max=None, net_min=None, net_max=None,
                 sort="date", order="desc"):
-    query = "SELECT h.* FROM hands h"
+    query = """SELECT h.*,
+                      (SELECT GROUP_CONCAT(tag) FROM tags WHERE tags.hand_id = h.hand_id) as tag_list
+               FROM hands h"""
     params = []
     joins = []
     where = []
@@ -346,15 +348,17 @@ def stats_by_game_type(is_tournament=None):
 
 def overall_stats(is_tournament=None):
     query = """SELECT COUNT(*) as hands, SUM(hero_net) as net,
-                      SUM(CASE WHEN big_blind > 0 THEN hero_net / big_blind ELSE NULL END) as net_bb
+                      SUM(CASE WHEN big_blind > 0 THEN hero_net / big_blind ELSE NULL END) as net_bb,
+                      SUM(CASE WHEN big_blind > 0 THEN 1 ELSE 0 END) as bb_hands
                FROM hands"""
     params = []
     if is_tournament is not None:
         query += " WHERE is_tournament = ?"
         params.append(is_tournament)
     with get_conn() as conn:
-        row = conn.execute(query, params).fetchone()
-        return dict(row)
+        row = dict(conn.execute(query, params).fetchone())
+        row["bb_per_100"] = (row["net_bb"] / row["bb_hands"] * 100) if row["bb_hands"] else None
+        return row
 
 
 def get_setting(key, default=None):

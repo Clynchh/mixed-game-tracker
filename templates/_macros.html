@@ -1,0 +1,21 @@
+{% macro tag_cell(h, preset_tags, preset_colors) %}
+{% set current_tags = h.tag_list.split(',') if h.tag_list else [] %}
+<td class="tag-cell" onclick="event.stopPropagation()">
+  <div class="tag-dots">
+    {% for name, color in preset_tags %}
+    {% set active = name in current_tags %}
+    <button type="button" class="tag-dot {{ 'active' if active }}" style="--dot-color:{{ color }}"
+            title="{{ name }}{{ ' (click to remove)' if active else '' }}"
+            onclick="toggleQuickTag('{{ h.hand_id }}', '{{ name }}', {{ 'true' if active else 'false' }}, event)"></button>
+    {% endfor %}
+  </div>
+  {% if current_tags %}
+  <div class="tag-pills-mini">
+    {% for t in current_tags %}
+    <span class="tag-pill-mini"
+          {% if t in preset_colors %}style="border-color:{{ preset_colors[t] }};color:{{ preset_colors[t] }};background:{{ preset_colors[t] }}22;"{% endif %}>{{ t }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+</td>
+{% endmacro %}

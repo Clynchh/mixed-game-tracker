@@ -194,7 +194,7 @@ main { padding: 24px 28px 60px; max-width: 1180px; margin: 0 auto; }
   flex-wrap: wrap;
 }
 
-input[type=text], select {
+input[type=text], input[type=number], select {
   background: var(--panel);
   border: 1px solid var(--border);
   color: var(--text);
@@ -202,6 +202,13 @@ input[type=text], select {
   border-radius: 5px;
   font-family: var(--sans);
   font-size: 13px;
+}
+input[type=text]::placeholder, input[type=number]::placeholder { color: var(--text-dim); }
+/* Chrome/Edge/Safari number spinner - default renders as a light widget
+   that clashes with the dark theme even once the field itself is styled. */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+  filter: invert(0.6);
 }
 
 button, .btn {
@@ -275,6 +282,36 @@ table.hands td.game { font-family: var(--sans); }
   margin-right: 4px;
 }
 
+.tag-cell { min-width: 150px; }
+.tag-dots {
+  display: flex;
+  gap: 5px;
+  opacity: 0;
+  transition: opacity 0.1s;
+  margin-bottom: 3px;
+}
+table.hands tr:hover .tag-dots { opacity: 1; }
+.tag-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid var(--dot-color, var(--border));
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.tag-dot:hover { transform: scale(1.2); }
+.tag-dot.active { background: var(--dot-color, var(--gold)); }
+.tag-pills-mini { display: flex; gap: 4px; flex-wrap: wrap; }
+.tag-pill-mini {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--gold-dim);
+  background: rgba(201, 162, 74, 0.14);
+  color: var(--gold);
+}
+
 .empty-state {
   text-align: center;
   padding: 60px 20px;
@@ -325,6 +362,25 @@ pre.raw-hand {
   padding-top: 18px;
   border-top: 1px solid var(--border);
 }
+.quick-tags {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.quick-tag-btn {
+  background: transparent;
+  border: 1px solid var(--dot-color, var(--border));
+  color: var(--dot-color, var(--text-dim));
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.quick-tag-btn:hover { background: color-mix(in srgb, var(--dot-color, var(--text-dim)) 15%, transparent); }
+.quick-tag-btn.active { background: var(--dot-color, var(--gold-dim)); color: #14161b; }
+
 .tag-form {
   display: flex;
   gap: 8px;

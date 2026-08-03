@@ -21,5 +21,14 @@
   <main>
     {% block content %}{% endblock %}
   </main>
+  <script>
+    function toggleQuickTag(handId, tag, isActive, event) {
+      event.stopPropagation();
+      const action = isActive ? 'untag' : 'tag';
+      const body = new URLSearchParams({tag: tag});
+      fetch(`/hand/${handId}/${action}`, {method: 'POST', body: body})
+        .then(() => location.reload());
+    }
+  </script>
 </body>
 </html>

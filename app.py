@@ -23,6 +23,17 @@ def get_username():
 
 fw = watcher.FolderWatcher(get_folder, get_username)
 
+# Quick-tag presets available as hover buttons on any hand row. Order here is
+# the display order (also the hover-button order).
+PRESET_TAGS = [
+    ("superb", "#a855f7"),
+    ("good", "#5fae6e"),
+    ("review", "#d9b23a"),
+    ("bad", "#c0564f"),
+    ("punt", "#4a90d9"),
+]
+PRESET_TAG_COLORS = dict(PRESET_TAGS)
+
 
 @app.route("/")
 def dashboard():
@@ -98,6 +109,8 @@ def dashboard():
         hand_graph_count=len(hand_values),
         last_scan_new=fw.last_scan_new,
         last_scan_time=fw.last_scan_time,
+        preset_tags=PRESET_TAGS,
+        preset_colors=PRESET_TAG_COLORS,
     )
 
 
@@ -128,6 +141,10 @@ def reports():
         sort = "date"
     order = "asc" if request.args.get("order") == "asc" else "desc"
 
+    unit = request.args.get("unit")
+    if unit not in ("raw", "bb"):
+        unit = "raw"
+
     pot_min = _report_float("pot_min")
     pot_max = _report_float("pot_max")
     net_min = _report_float("net_min")
@@ -141,11 +158,19 @@ def reports():
     all_matching = db.list_hands(sort=sort, order=order, limit=None, **filters)
     total = len(all_matching)
     hands = all_matching[:REPORT_ROW_LIMIT]
+
+    bb_rows = [h for h in all_matching if h["big_blind"]]
+    net_bb_total = sum(h["hero_net"] / h["big_blind"] for h in bb_rows)
+    avg_pot_bb = (sum((h["pot_total"] or 0) / h["big_blind"] for h in bb_rows) / len(bb_rows)) if bb_rows else 0
+
     summary = {
         "count": total,
         "net": sum(h["hero_net"] for h in all_matching),
+        "net_bb": net_bb_total,
         "avg_pot": (sum((h["pot_total"] or 0) for h in all_matching) / total) if total else 0,
+        "avg_pot_bb": avg_pot_bb,
         "win_rate": (sum(1 for h in all_matching if h["hero_net"] > 0) / total * 100) if total else 0,
+        "bb_per_100": (net_bb_total / len(bb_rows) * 100) if bb_rows else None,
     }
 
     return render_template(
@@ -154,6 +179,7 @@ def reports():
         total=total,
         shown=len(hands),
         summary=summary,
+        unit=unit,
         game_types=db.all_game_types(is_tournament=is_tournament),
         pot_types=db.all_pot_types(is_tournament=is_tournament),
         tags=db.all_tags(is_tournament=is_tournament),
@@ -164,6 +190,8 @@ def reports():
         search=search or "",
         pot_min=pot_min, pot_max=pot_max, net_min=net_min, net_max=net_max,
         sort=sort, order=order,
+        preset_tags=PRESET_TAGS,
+        preset_colors=PRESET_TAG_COLORS,
     )
 
 
@@ -172,7 +200,7 @@ def hand_detail(hand_id):
     hand = db.get_hand(hand_id)
     if not hand:
         return "Hand not found", 404
-    return render_template("hand.html", hand=hand)
+    return render_template("hand.html", hand=hand, preset_tags=PRESET_TAGS, preset_colors=PRESET_TAG_COLORS)
 
 
 @app.route("/hand/<hand_id>/tag", methods=["POST"])
