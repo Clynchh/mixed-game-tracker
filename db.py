@@ -110,7 +110,7 @@ def set_file_state(filepath, mtime, size, hands_found):
         )
 
 
-def list_hands(game_type=None, tag=None, date_from=None, date_to=None, limit=200, offset=0, search=None):
+def list_hands(game_type=None, tag=None, date_from=None, date_to=None, limit=200, offset=0, search=None, is_tournament=None):
     query = "SELECT h.* FROM hands h"
     params = []
     joins = []
@@ -123,6 +123,9 @@ def list_hands(game_type=None, tag=None, date_from=None, date_to=None, limit=200
     if game_type:
         where.append("h.game_type = ?")
         params.append(game_type)
+    if is_tournament is not None:
+        where.append("h.is_tournament = ?")
+        params.append(is_tournament)
     if date_from:
         where.append("h.date_played >= ?")
         params.append(date_from)
@@ -169,35 +172,49 @@ def remove_tag(hand_id, tag):
         conn.execute("DELETE FROM tags WHERE hand_id=? AND tag=?", (hand_id, tag))
 
 
-def all_tags():
+def all_tags(is_tournament=None):
     with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT tag, COUNT(*) as n FROM tags GROUP BY tag ORDER BY n DESC"
-        ).fetchall()
+        if is_tournament is not None:
+            rows = conn.execute(
+                """SELECT t.tag, COUNT(*) as n FROM tags t
+                   JOIN hands h ON h.hand_id = t.hand_id
+                   WHERE h.is_tournament = ?
+                   GROUP BY t.tag ORDER BY n DESC""",
+                (is_tournament,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT tag, COUNT(*) as n FROM tags GROUP BY tag ORDER BY n DESC"
+            ).fetchall()
         return [dict(r) for r in rows]
 
 
-def stats_by_game_type():
-    with get_conn() as conn:
-        rows = conn.execute(
-            """SELECT game_type,
+def stats_by_game_type(is_tournament=None):
+    query = """SELECT game_type,
                       COUNT(*) as hands,
                       SUM(hero_net) as net,
                       AVG(hero_net) as avg_net,
                       SUM(CASE WHEN hero_net > 0 THEN 1 ELSE 0 END) as won,
                       SUM(CASE WHEN hero_net < 0 THEN 1 ELSE 0 END) as lost
-               FROM hands
-               GROUP BY game_type
-               ORDER BY hands DESC"""
-        ).fetchall()
+               FROM hands"""
+    params = []
+    if is_tournament is not None:
+        query += " WHERE is_tournament = ?"
+        params.append(is_tournament)
+    query += " GROUP BY game_type ORDER BY hands DESC"
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
 
-def overall_stats():
+def overall_stats(is_tournament=None):
+    query = "SELECT COUNT(*) as hands, SUM(hero_net) as net FROM hands"
+    params = []
+    if is_tournament is not None:
+        query += " WHERE is_tournament = ?"
+        params.append(is_tournament)
     with get_conn() as conn:
-        row = conn.execute(
-            "SELECT COUNT(*) as hands, SUM(hero_net) as net FROM hands"
-        ).fetchone()
+        row = conn.execute(query, params).fetchone()
         return dict(row)
 
 

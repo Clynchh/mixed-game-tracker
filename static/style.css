@@ -55,6 +55,30 @@ header.top .meta {
 
 main { padding: 24px 28px 60px; max-width: 1180px; margin: 0 auto; }
 
+.mode-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+.mode-tab {
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.mode-tab:hover { color: var(--text); text-decoration: none; }
+.mode-tab.active { color: var(--gold); border-bottom-color: var(--gold); }
+.mode-tab .count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: 4px;
+}
+.mode-tab.active .count { color: var(--gold-dim); }
+
 .stats-row {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));

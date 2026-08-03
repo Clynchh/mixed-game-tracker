@@ -24,10 +24,19 @@ def dashboard():
     game_type = request.args.get("game_type") or None
     tag = request.args.get("tag") or None
     search = request.args.get("search") or None
-    hands = db.list_hands(game_type=game_type, tag=tag, search=search, limit=100)
-    stats = db.stats_by_game_type()
-    overall = db.overall_stats()
-    tags = db.all_tags()
+
+    cash_count = db.overall_stats(is_tournament=0)["hands"] or 0
+    tourney_count = db.overall_stats(is_tournament=1)["hands"] or 0
+
+    mode = request.args.get("mode")
+    if mode not in ("cash", "tournament"):
+        mode = "tournament" if tourney_count > cash_count else "cash"
+    is_tournament = 1 if mode == "tournament" else 0
+
+    hands = db.list_hands(game_type=game_type, tag=tag, search=search, is_tournament=is_tournament, limit=100)
+    stats = db.stats_by_game_type(is_tournament=is_tournament)
+    overall = db.overall_stats(is_tournament=is_tournament)
+    tags = db.all_tags(is_tournament=is_tournament)
     game_types = sorted({s["game_type"] for s in stats})
     return render_template(
         "dashboard.html",
@@ -40,6 +49,9 @@ def dashboard():
         selected_game_type=game_type,
         selected_tag=tag,
         search=search or "",
+        mode=mode,
+        mode_counts={"cash": cash_count, "tournament": tourney_count},
+        total_hands=cash_count + tourney_count,
         last_scan_new=fw.last_scan_new,
         last_scan_time=fw.last_scan_time,
     )
