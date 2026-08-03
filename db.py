@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS hands (
     hero_collected REAL,
     hero_net      REAL,
     pot_total     REAL,
+    pot_type      TEXT,
     big_blind     REAL,
     num_players   INTEGER,
     source_file   TEXT,
@@ -90,6 +91,8 @@ def _migrate(conn):
     cols = [r["name"] for r in conn.execute("PRAGMA table_info(hands)").fetchall()]
     if "big_blind" not in cols:
         conn.execute("ALTER TABLE hands ADD COLUMN big_blind REAL")
+    if "pot_type" not in cols:
+        conn.execute("ALTER TABLE hands ADD COLUMN pot_type TEXT")
 
 
 def init_db():
@@ -107,18 +110,19 @@ def upsert_hand(hand: dict) -> bool:
             """INSERT INTO hands
                (hand_id, game_type, limit_type, stakes, is_tournament, tournament_id,
                 table_name, date_played, hero_name, hero_cards, hero_invested,
-                hero_collected, hero_net, pot_total, big_blind, num_players, source_file, raw_text)
+                hero_collected, hero_net, pot_total, pot_type, big_blind, num_players, source_file, raw_text)
                VALUES (:hand_id, :game_type, :limit_type, :stakes, :is_tournament, :tournament_id,
                        :table_name, :date_played, :hero_name, :hero_cards, :hero_invested,
-                       :hero_collected, :hero_net, :pot_total, :big_blind, :num_players, :source_file, :raw_text)
+                       :hero_collected, :hero_net, :pot_total, :pot_type, :big_blind, :num_players, :source_file, :raw_text)
                ON CONFLICT(hand_id) DO UPDATE SET
                  game_type=excluded.game_type, limit_type=excluded.limit_type, stakes=excluded.stakes,
                  is_tournament=excluded.is_tournament, tournament_id=excluded.tournament_id,
                  table_name=excluded.table_name, date_played=excluded.date_played,
                  hero_name=excluded.hero_name, hero_cards=excluded.hero_cards,
                  hero_invested=excluded.hero_invested, hero_collected=excluded.hero_collected,
-                 hero_net=excluded.hero_net, pot_total=excluded.pot_total, big_blind=excluded.big_blind,
-                 num_players=excluded.num_players, source_file=excluded.source_file, raw_text=excluded.raw_text""",
+                 hero_net=excluded.hero_net, pot_total=excluded.pot_total, pot_type=excluded.pot_type,
+                 big_blind=excluded.big_blind, num_players=excluded.num_players,
+                 source_file=excluded.source_file, raw_text=excluded.raw_text""",
             hand,
         )
         return not existed
@@ -143,28 +147,33 @@ def set_tournament_result(tournament_id, finish_place, payout):
         )
 
 
-def tournament_stats():
+def tournament_stats(order="desc"):
+    sort_dir = "ASC" if order == "asc" else "DESC"
     with get_conn() as conn:
         rows = conn.execute(
-            """SELECT tournament_id, game_desc, buy_in, date_played, finish_place, payout,
-                      (COALESCE(payout, 0) - COALESCE(buy_in, 0)) as net
-               FROM tournaments ORDER BY date_played DESC"""
+            f"""SELECT tournament_id, game_desc, buy_in, date_played, finish_place, payout,
+                       (COALESCE(payout, 0) - COALESCE(buy_in, 0)) as net
+                FROM tournaments ORDER BY date_played {sort_dir}"""
         ).fetchall()
         return [dict(r) for r in rows]
 
 
 def tournament_overall():
+    """Only counts tournaments with a recorded finish - an in-progress
+    tournament's buy-in isn't a realized loss yet, so it shouldn't drag
+    down ROI/avg-buy-in until it actually finishes."""
     with get_conn() as conn:
-        row = conn.execute(
+        completed = dict(conn.execute(
             """SELECT COUNT(*) as n,
                       SUM(buy_in) as total_buyin,
                       SUM(payout) as total_payout,
                       SUM(COALESCE(payout, 0) - COALESCE(buy_in, 0)) as net,
-                      SUM(CASE WHEN payout > 0 THEN 1 ELSE 0 END) as itm,
-                      SUM(CASE WHEN finish_place IS NOT NULL THEN 1 ELSE 0 END) as completed
-               FROM tournaments"""
-        ).fetchone()
-        return dict(row)
+                      SUM(CASE WHEN payout > 0 THEN 1 ELSE 0 END) as itm
+               FROM tournaments WHERE finish_place IS NOT NULL"""
+        ).fetchone())
+        total_n = conn.execute("SELECT COUNT(*) as n FROM tournaments").fetchone()["n"] or 0
+        completed["in_progress"] = total_n - (completed["n"] or 0)
+        return completed
 
 
 def get_file_state(filepath):
@@ -184,7 +193,18 @@ def set_file_state(filepath, mtime, size, hands_found):
         )
 
 
-def list_hands(game_type=None, tag=None, date_from=None, date_to=None, limit=200, offset=0, search=None, is_tournament=None):
+SORT_COLUMNS = {
+    "date": "h.date_played",
+    "pot": "h.pot_total",
+    "net": "h.hero_net",
+    "pot_type": "h.pot_type",
+    "game_type": "h.game_type",
+}
+
+
+def list_hands(game_type=None, tag=None, date_from=None, date_to=None, limit=200, offset=0, search=None,
+                is_tournament=None, pot_type=None, pot_min=None, pot_max=None, net_min=None, net_max=None,
+                sort="date", order="desc"):
     query = "SELECT h.* FROM hands h"
     params = []
     joins = []
@@ -200,6 +220,21 @@ def list_hands(game_type=None, tag=None, date_from=None, date_to=None, limit=200
     if is_tournament is not None:
         where.append("h.is_tournament = ?")
         params.append(is_tournament)
+    if pot_type:
+        where.append("h.pot_type = ?")
+        params.append(pot_type)
+    if pot_min is not None:
+        where.append("h.pot_total >= ?")
+        params.append(pot_min)
+    if pot_max is not None:
+        where.append("h.pot_total <= ?")
+        params.append(pot_max)
+    if net_min is not None:
+        where.append("h.hero_net >= ?")
+        params.append(net_min)
+    if net_max is not None:
+        where.append("h.hero_net <= ?")
+        params.append(net_max)
     if date_from:
         where.append("h.date_played >= ?")
         params.append(date_from)
@@ -214,12 +249,39 @@ def list_hands(game_type=None, tag=None, date_from=None, date_to=None, limit=200
         query += " " + " ".join(joins)
     if where:
         query += " WHERE " + " AND ".join(where)
-    query += " ORDER BY h.date_played DESC LIMIT ? OFFSET ?"
-    params += [limit, offset]
+
+    sort_col = SORT_COLUMNS.get(sort, SORT_COLUMNS["date"])
+    sort_dir = "ASC" if order == "asc" else "DESC"
+    query += f" ORDER BY {sort_col} {sort_dir}"
+    if limit is not None:
+        query += " LIMIT ? OFFSET ?"
+        params += [limit, offset]
 
     with get_conn() as conn:
         rows = conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
+
+
+def all_pot_types(is_tournament=None):
+    query = "SELECT DISTINCT pot_type FROM hands WHERE pot_type IS NOT NULL"
+    params = []
+    if is_tournament is not None:
+        query += " AND is_tournament = ?"
+        params.append(is_tournament)
+    query += " ORDER BY pot_type"
+    with get_conn() as conn:
+        return [r["pot_type"] for r in conn.execute(query, params).fetchall()]
+
+
+def all_game_types(is_tournament=None):
+    query = "SELECT DISTINCT game_type FROM hands WHERE game_type IS NOT NULL"
+    params = []
+    if is_tournament is not None:
+        query += " AND is_tournament = ?"
+        params.append(is_tournament)
+    query += " ORDER BY game_type"
+    with get_conn() as conn:
+        return [r["game_type"] for r in conn.execute(query, params).fetchall()]
 
 
 def get_hand(hand_id):

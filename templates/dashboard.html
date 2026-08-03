@@ -48,10 +48,19 @@
   {% if mode == 'tournament' and tourney_results and tourney_results.n %}
   <div class="overall-banner tourney-banner">
     <div><span class="big {{ 'pos' if (tourney_results.net or 0) >= 0 else 'neg' }}">{{ '%.2f'|format(tourney_results.net or 0) }}</span> <span class="lbl">$ result</span></div>
+    <div><span class="big">{{ '%.1f'|format(tourney_roi) if tourney_roi is not none else 'n/a' }}%</span> <span class="lbl">roi</span></div>
+    <div><span class="big">{{ '%.2f'|format(tourney_avg_buyin) if tourney_avg_buyin is not none else 'n/a' }}</span> <span class="lbl">avg buy-in</span></div>
     <div><span class="big">{{ '%.2f'|format(tourney_results.total_buyin or 0) }}</span> <span class="lbl">buy-ins</span></div>
     <div><span class="big">{{ '%.2f'|format(tourney_results.total_payout or 0) }}</span> <span class="lbl">cashes</span></div>
-    <div><span class="big">{{ tourney_results.itm or 0 }}/{{ tourney_results.completed or 0 }}</span> <span class="lbl">itm</span></div>
-    <div><span class="big">{{ tourney_results.n }}</span> <span class="lbl">tournaments</span></div>
+    <div><span class="big">{{ tourney_results.itm or 0 }}/{{ tourney_results.n }}</span> <span class="lbl">itm</span></div>
+    {% if tourney_results.in_progress %}<div><span class="big">{{ tourney_results.in_progress }}</span> <span class="lbl">in progress</span></div>{% endif %}
+  </div>
+  <div class="chart-card">
+    <div class="chart-head">
+      <span class="chart-title">Tournament results ($, cumulative)</span>
+      <span class="chart-sub">{{ tourney_results.n }} completed</span>
+    </div>
+    {% if tourney_graph_svg %}{{ tourney_graph_svg|safe }}{% else %}<div class="chart-empty">Not enough completed tournaments yet.</div>{% endif %}
   </div>
   {% elif mode == 'tournament' %}
   <div class="empty-state" style="padding:20px;margin-bottom:22px;">
@@ -64,6 +73,14 @@
   <div class="overall-banner">
     <div><span class="big {{ 'pos' if (overall_net or 0) >= 0 else 'neg' }}">{{ '%.2f'|format(overall_net or 0) }}{{ ' bb' if unit == 'bb' and overall.net_bb is not none else '' }}</span> <span class="lbl">{{ net_label }}</span></div>
     <div><span class="big">{{ overall.hands }}</span> <span class="lbl">hands tracked</span></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-head">
+      <span class="chart-title">Hands graph ({{ 'BB' if unit == 'bb' else ('$' if mode == 'cash' else 'chips') }}, cumulative)</span>
+      <span class="chart-sub">{{ hand_graph_count }} hands</span>
+    </div>
+    {% if hand_graph_svg %}{{ hand_graph_svg|safe }}{% else %}<div class="chart-empty">No hands to graph yet.</div>{% endif %}
   </div>
 
   <div class="stats-row">

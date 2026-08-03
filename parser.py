@@ -84,6 +84,19 @@ UNCALLED_RE = re.compile(r"^Uncalled bet \(\$?([\d,.]+)\) returned to (\S+)")
 POT_TOTAL_RE = re.compile(r"^Total pot \$?([\d,.]+)")
 SEAT_COUNT_RE = re.compile(r"^Seat \d+:")
 
+# Pot-type classification (limped / raised / 3-bet / 4-bet, or stud's
+# limped / completed / 3-bet / 4-bet) is based on the opening betting round
+# only - preflop for flop/draw games, 3rd street for stud - same convention
+# PT4/HM use. "completes it to" and "raises ... to" both count as a raise
+# for this purpose: the bring-in itself is bet 1, so 1 raise over it = bet 2
+# ("completed"/open-equivalent), 2 raises = bet 3 ("3-bet"), etc. - same
+# counting flop games use with the big blind as bet 1.
+RAISE_ACTION_RE = re.compile(
+    r"^(\S+): (?:raises \$?[\d,.]+ to \$?[\d,.]+|completes it to \$?[\d,.]+)", re.MULTILINE
+)
+CALL_ACTION_RE = re.compile(r"^(\S+): calls \$?[\d,.]+", re.MULTILINE)
+STUD_GAME_TYPES = {"Razz", "Stud", "Stud Hi/Lo"}
+
 GAME_TYPE_MAP = [
     # order matters: check specific/compound names before generic substrings
     (re.compile(r"7 Card Stud Hi/Lo|Stud Hi/Lo|Stud H/L", re.I), "Stud Hi/Lo"),
@@ -154,6 +167,31 @@ def _find_hero(text, hero_username=None):
     name, brackets = matches[-1]  # last = most complete card set across streets
     cards = " ".join(BRACKET_RE.findall(brackets))
     return name, cards
+
+
+def _opening_round_block(text):
+    """Text of just the first betting round (preflop / 3rd street), used for
+    pot-type classification so later-street action doesn't get counted."""
+    headers = list(STREET_HEADER_RE.finditer(text))
+    if not headers:
+        return text
+    start = headers[0].end()
+    end = headers[1].start() if len(headers) > 1 else len(text)
+    return text[start:end]
+
+
+def _classify_pot_type(text, game_type):
+    block = _opening_round_block(text)
+    raises = len(RAISE_ACTION_RE.findall(block))
+    if raises == 0:
+        return "Limped" if CALL_ACTION_RE.search(block) else "Walk"
+    if raises == 1:
+        return "Completed" if game_type in STUD_GAME_TYPES else "Raised (SRP)"
+    if raises == 2:
+        return "3-bet"
+    if raises == 3:
+        return "4-bet"
+    return f"{raises + 1}-bet+"
 
 
 def _compute_money(text, hero_name):
@@ -260,6 +298,7 @@ def parse_hand(raw_text, source_file="", hero_username=None):
 
     invested, collected, pot_total = _compute_money(raw_text, hero_name)
     net = round(collected - invested, 4)
+    pot_type = _classify_pot_type(raw_text, game_type)
 
     tourney_finish_place = None
     tourney_payout = None
@@ -284,6 +323,7 @@ def parse_hand(raw_text, source_file="", hero_username=None):
         "hero_collected": round(collected, 4),
         "hero_net": net,
         "pot_total": pot_total,
+        "pot_type": pot_type,
         "big_blind": big_blind,
         "num_players": len(seats),
         "source_file": source_file,

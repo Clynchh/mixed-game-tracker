@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Reports · MixTrack{% endblock %}
+
+{% block header_meta %}
+  <span>{{ total }} hands match{% if total > shown %} &middot; showing first {{ shown }}{% endif %}</span>
+{% endblock %}
+
+{% macro sort_link(col, label) -%}
+  {% set next_order = 'asc' if (sort == col and order == 'desc') else 'desc' %}
+  <a href="{{ url_for('reports', mode=mode, game_type=selected_game_type, pot_type=selected_pot_type, tag=selected_tag, search=search, pot_min=pot_min, pot_max=pot_max, net_min=net_min, net_max=net_max, sort=col, order=next_order) }}"
+     class="sort-link {{ 'active' if sort == col }}">
+    {{ label }}{% if sort == col %}<span class="sort-arrow">{{ '&uarr;'|safe if order == 'asc' else '&darr;'|safe }}</span>{% endif %}
+  </a>
+{%- endmacro %}
+
+{% block content %}
+
+<h2 style="font-family:var(--mono);font-weight:600;margin-bottom:16px;">Reports</h2>
+
+<form class="controls" method="get" style="flex-wrap:wrap;">
+  <select name="mode">
+    <option value="" {{ 'selected' if mode == '' }}>cash + tournament</option>
+    <option value="cash" {{ 'selected' if mode == 'cash' }}>cash only</option>
+    <option value="tournament" {{ 'selected' if mode == 'tournament' }}>tournament only</option>
+  </select>
+  <select name="game_type">
+    <option value="">all games</option>
+    {% for g in game_types %}
+    <option value="{{ g }}" {{ 'selected' if selected_game_type == g }}>{{ g }}</option>
+    {% endfor %}
+  </select>
+  <select name="pot_type">
+    <option value="">all pot types</option>
+    {% for p in pot_types %}
+    <option value="{{ p }}" {{ 'selected' if selected_pot_type == p }}>{{ p }}</option>
+    {% endfor %}
+  </select>
+  <select name="tag">
+    <option value="">all tags</option>
+    {% for t in tags %}
+    <option value="{{ t.tag }}" {{ 'selected' if selected_tag == t.tag }}>{{ t.tag }} ({{ t.n }})</option>
+    {% endfor %}
+  </select>
+  <input type="text" name="search" placeholder="search raw hand text..." value="{{ search }}" style="width:160px;">
+  <input type="number" step="any" name="pot_min" placeholder="min pot" value="{{ pot_min if pot_min is not none else '' }}" style="width:90px;">
+  <input type="number" step="any" name="pot_max" placeholder="max pot" value="{{ pot_max if pot_max is not none else '' }}" style="width:90px;">
+  <input type="number" step="any" name="net_min" placeholder="min net" value="{{ net_min if net_min is not none else '' }}" style="width:90px;">
+  <input type="number" step="any" name="net_max" placeholder="max net" value="{{ net_max if net_max is not none else '' }}" style="width:90px;">
+  <input type="hidden" name="sort" value="{{ sort }}">
+  <input type="hidden" name="order" value="{{ order }}">
+  <button type="submit">Filter</button>
+  <a href="{{ url_for('reports') }}" class="btn btn-ghost">Clear</a>
+</form>
+
+<div class="overall-banner">
+  <div><span class="big {{ 'pos' if summary.net >= 0 else 'neg' }}">{{ '%.2f'|format(summary.net) }}</span> <span class="lbl">net</span></div>
+  <div><span class="big">{{ summary.count }}</span> <span class="lbl">hands</span></div>
+  <div><span class="big">{{ '%.1f'|format(summary.win_rate) }}%</span> <span class="lbl">won</span></div>
+  <div><span class="big">{{ '%.2f'|format(summary.avg_pot) }}</span> <span class="lbl">avg pot</span></div>
+</div>
+
+{% if hands %}
+<table class="hands">
+  <thead>
+    <tr>
+      <th>{{ sort_link('date', 'Date') }}</th>
+      <th>{{ sort_link('game_type', 'Game') }}</th>
+      <th>Stakes</th>
+      <th>{{ sort_link('pot_type', 'Pot type') }}</th>
+      <th>{{ sort_link('pot', 'Pot') }}</th>
+      <th>{{ sort_link('net', 'Net') }}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for h in hands %}
+    <tr onclick="window.location='{{ url_for('hand_detail', hand_id=h.hand_id) }}'" style="cursor:pointer">
+      <td>{{ h.date_played[:16] if h.date_played else '' }}</td>
+      <td class="game">{{ h.game_type }} <span class="pill">{{ h.limit_type }}</span></td>
+      <td>{{ h.stakes }}</td>
+      <td><span class="pill">{{ h.pot_type }}</span></td>
+      <td>{{ '%.2f'|format(h.pot_total) if h.pot_total is not none else '' }}</td>
+      <td class="{{ 'pos' if h.hero_net >= 0 else 'neg' }}">{{ '%.2f'|format(h.hero_net) }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty-state"><p>No hands match this filter.</p></div>
+{% endif %}
+
+{% endblock %}
