@@ -5,7 +5,9 @@
 {% block header_meta %}
   {% if folder %}
     <span>watching <code>{{ folder }}</code></span>
-    {% if last_scan_time %}<span>{{ hands|length }} shown</span>{% endif %}
+    {% if last_scan_time %}
+      <span>{% if matching_hands and hands|length < matching_hands %}{{ hands|length }} of {{ matching_hands }}{% else %}{{ hands|length }}{% endif %} shown</span>
+    {% endif %}
   {% else %}
     <span class="neg">no folder configured</span>
   {% endif %}
@@ -192,6 +194,14 @@
       {% endfor %}
     </tbody>
   </table>
+  {% if hands|length < matching_hands %}
+  <div class="list-footer">
+    Showing the {{ hands|length }} most recent of {{ matching_hands }} matching hands.
+    <a href="{{ url_for('dashboard', mode=mode, unit=unit, game_type=selected_game_type, tag=selected_tag, search=search or none, show_all='1') }}">Show all {{ matching_hands }}</a>
+  </div>
+  {% elif show_all and matching_hands %}
+  <div class="list-footer">Showing all {{ matching_hands }} matching hands.</div>
+  {% endif %}
   {% else %}
   <div class="empty-state">
     <p>{% if selected_game_type or selected_tag or search %}No hands match this filter.{% else %}No {{ mode }} hands yet.{% endif %}</p>

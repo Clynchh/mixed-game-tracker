@@ -42,6 +42,8 @@ PRESET_TAGS = [
     ("punt", "#4a90d9"),
 ]
 PRESET_TAG_COLORS = dict(PRESET_TAGS)
+DASHBOARD_ROW_LIMIT = 100
+
 PRESET_TAG_DESCRIPTIONS = {
     "superb": "Superb — excellent, textbook play",
     "good": "Good — solid, correct decision",
@@ -70,7 +72,13 @@ def dashboard():
     if unit not in ("raw", "bb"):
         unit = "raw"
 
-    hands = db.list_hands(game_type=game_type, tag=tag, search=search, is_tournament=is_tournament, limit=100)
+    # The list is capped by default so a big session doesn't render thousands
+    # of rows, but the cap has to be visible - otherwise a hand you tagged
+    # that falls outside it just looks like it lost its tag.
+    show_all = request.args.get("show_all") == "1"
+    hand_filters = dict(game_type=game_type, tag=tag, search=search, is_tournament=is_tournament)
+    matching_hands = db.count_hands(**hand_filters)
+    hands = db.list_hands(limit=None if show_all else DASHBOARD_ROW_LIMIT, **hand_filters)
     stats = db.stats_by_game_type(is_tournament=is_tournament)
     overall = db.overall_stats(is_tournament=is_tournament)
     tags = db.all_tags(is_tournament=is_tournament)
@@ -167,6 +175,8 @@ def dashboard():
         unit=unit,
         mode_counts={"cash": cash_count, "tournament": tourney_count},
         total_hands=cash_count + tourney_count,
+        matching_hands=matching_hands,
+        show_all=show_all,
         tourney_results=tourney_results,
         tourney_roi=tourney_roi,
         tourney_avg_buyin=tourney_avg_buyin,

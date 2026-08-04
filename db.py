@@ -218,15 +218,12 @@ SORT_COLUMNS = {
 }
 
 
-def list_hands(game_type=None, tag=None, date_from=None, date_to=None, limit=200, offset=0, search=None,
-                is_tournament=None, pot_type=None, pot_min=None, pot_max=None, net_min=None, net_max=None,
-                vpip=None, sort="date", order="desc"):
-    query = """SELECT h.*,
-                      (SELECT GROUP_CONCAT(tag) FROM tags WHERE tags.hand_id = h.hand_id) as tag_list
-               FROM hands h"""
-    params = []
-    joins = []
-    where = []
+def _hand_filters(game_type=None, tag=None, date_from=None, date_to=None, search=None,
+                   is_tournament=None, pot_type=None, pot_min=None, pot_max=None,
+                   net_min=None, net_max=None, vpip=None):
+    """Shared WHERE/JOIN builder so list_hands and count_hands can't drift
+    apart - a count that didn't match the list would be worse than none."""
+    joins, where, params = [], [], []
 
     if tag:
         joins.append("JOIN tags t ON t.hand_id = h.hand_id")
@@ -265,17 +262,33 @@ def list_hands(game_type=None, tag=None, date_from=None, date_to=None, limit=200
         where.append("h.raw_text LIKE ?")
         params.append(f"%{search}%")
 
+    clause = ""
     if joins:
-        query += " " + " ".join(joins)
+        clause += " " + " ".join(joins)
     if where:
-        query += " WHERE " + " AND ".join(where)
+        clause += " WHERE " + " AND ".join(where)
+    return clause, params
+
+
+def count_hands(**filters):
+    """How many hands match, ignoring any row limit."""
+    clause, params = _hand_filters(**filters)
+    with get_conn() as conn:
+        return conn.execute(f"SELECT COUNT(*) AS n FROM hands h{clause}", params).fetchone()["n"]
+
+
+def list_hands(limit=200, offset=0, sort="date", order="desc", **filters):
+    clause, params = _hand_filters(**filters)
+    query = ("""SELECT h.*,
+                       (SELECT GROUP_CONCAT(tag) FROM tags WHERE tags.hand_id = h.hand_id) as tag_list
+                FROM hands h""" + clause)
 
     sort_col = SORT_COLUMNS.get(sort, SORT_COLUMNS["date"])
     sort_dir = "ASC" if order == "asc" else "DESC"
     query += f" ORDER BY {sort_col} {sort_dir}"
     if limit is not None:
         query += " LIMIT ? OFFSET ?"
-        params += [limit, offset]
+        params = params + [limit, offset]
 
     with get_conn() as conn:
         rows = conn.execute(query, params).fetchall()

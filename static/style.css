@@ -534,6 +534,14 @@ pre.raw-hand {
 .settings-form input[type=text] { width: 100%; max-width: 520px; margin-bottom: 14px; }
 .settings-form .help { font-size: 12px; color: var(--text-dim); margin-top: -8px; margin-bottom: 16px; max-width: 520px; }
 
+.list-footer {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+}
+.list-footer a { margin-left: 6px; }
+
 .raw-details summary {
   cursor: pointer;
   font-size: 12px;
