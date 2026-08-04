@@ -131,9 +131,17 @@
           tooltipHtml: function (p, idx) {
             const cls = p.delta >= 0 ? 'pos' : 'neg';
             const unitSuffix = '{{ " bb" if unit == "bb" else "" }}';
+            const row = (color, label, val) =>
+              `<div class="tt-row"><i style="background:${color}"></i><span class="tt-label">${label}</span><span class="tt-val">${fmtSigned(val)}${unitSuffix}</span></div>`;
             return `<div class="tt-title">#${idx + 1} &middot; ${p.date}</div>
                     <div class="tt-dim">${p.game_type} &middot; ${p.stakes}</div>
-                    <div class="${cls}">${fmtSigned(p.delta)}${unitSuffix}</div>`;
+                    <div class="${cls}">this hand ${fmtSigned(p.delta)}${unitSuffix}</div>
+                    <div class="tt-rows">
+                      ${row('#5fae6e', 'total', p.main)}
+                      ${row('#d9b23a', 'all-in EV-adj', p.ev)}
+                      ${row('#4a90d9', 'with showdown', p.sd)}
+                      ${row('#c0564f', 'without showdown', p.nonsd)}
+                    </div>`;
           },
         }
       );
