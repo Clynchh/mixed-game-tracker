@@ -603,6 +603,7 @@ pre.raw-hand {
   justify-content: center;
   align-items: flex-end;
   min-height: 34px;
+  padding-top: 9px;  /* room for raised stud up-cards + highlight rings */
   margin-bottom: 3px;
 }
 .seat-plate {
@@ -687,6 +688,24 @@ pre.raw-hand {
   border: 1px solid #4a1919;
 }
 .pc-back.hero { width: 40px; height: 56px; }
+
+/* Stud's face-up cards (3rd-6th street) sit proud of the face-down ones,
+   so which cards the table could actually see is obvious at a glance. */
+.pc.up-card { transform: translateY(-7px); }
+
+/* Cards making up a player's best hand at showdown. Split-pot games can ring
+   a card both ways at once, so the low ring sits outside the high one. */
+.pc.used-hi { box-shadow: 0 0 0 2px var(--gold), 0 0 9px rgba(201, 162, 74, 0.65); }
+.pc.used-lo { box-shadow: 0 0 0 2px #4a90d9, 0 0 9px rgba(74, 144, 217, 0.65); }
+.pc.used-hi.used-lo {
+  box-shadow: 0 0 0 2px var(--gold), 0 0 0 4px #4a90d9, 0 0 9px rgba(74, 144, 217, 0.6);
+}
+
+.replay-legend { display: flex; gap: 12px; font-size: 11px; color: var(--text-dim); }
+.replay-legend span { display: flex; align-items: center; gap: 5px; }
+.replay-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.replay-legend i.ring-hi { background: var(--gold); }
+.replay-legend i.ring-lo { background: #4a90d9; }
 .suit-s { color: #14161b; }
 .suit-h { color: #c0392b; }
 .suit-d { color: #2170b8; }

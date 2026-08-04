@@ -45,6 +45,12 @@ def parse_cards(s):
     return out
 
 
+def card_str(card):
+    """(13, 'c') -> 'Kc'. Inverse of parse_card."""
+    rank, suit = card
+    return RANKS[rank - 2] + suit
+
+
 def full_deck():
     return [(r, s) for r in range(2, 15) for s in SUITS]
 
@@ -168,6 +174,101 @@ def best_omaha_low8(hole4, board):
             if best is None or k < best:
                 best = k
     return best
+
+
+# ---------------------------------------------------------------------------
+# "Which five cards actually made the hand" - same rankings as above, but
+# keeping hold of the winning combination so the replayer can highlight it.
+# ---------------------------------------------------------------------------
+
+def best_high_cards(cards):
+    """(key, [the 5 cards used]) for the best high hand, or (None, None)."""
+    if len(cards) < 5:
+        return None, None
+    best_key, best_combo = None, None
+    for combo in combinations(cards, 5):
+        k = _high_key_5(combo)
+        if best_key is None or k > best_key:
+            best_key, best_combo = k, combo
+    return best_key, list(best_combo)
+
+
+def best_low_cards(cards, qualify_8=False):
+    """(key, [the 5 cards used]) for the best ace-to-five low, or (None, None)
+    when no qualifying low exists."""
+    if len(cards) < 5:
+        return None, None
+    best_key, best_combo = None, None
+    for combo in combinations(cards, 5):
+        ranks = [_to_ace_low(r) for r, s in combo]
+        if qualify_8 and any(r > 8 for r in ranks):
+            continue
+        k = _low_key_5(ranks)
+        if best_key is None or k < best_key:
+            best_key, best_combo = k, combo
+    return best_key, (list(best_combo) if best_combo else None)
+
+
+def best_omaha_high_cards(hole4, board):
+    best_key, best_combo = None, None
+    for h2 in combinations(hole4, 2):
+        for b3 in combinations(board, 3):
+            combo = list(h2) + list(b3)
+            k = _high_key_5(combo)
+            if best_key is None or k > best_key:
+                best_key, best_combo = k, combo
+    return best_key, best_combo
+
+
+def best_omaha_low8_cards(hole4, board):
+    best_key, best_combo = None, None
+    for h2 in combinations(hole4, 2):
+        for b3 in combinations(board, 3):
+            combo = list(h2) + list(b3)
+            ranks = [_to_ace_low(r) for r, s in combo]
+            if any(r > 8 for r in ranks):
+                continue
+            k = _low_key_5(ranks)
+            if best_key is None or k < best_key:
+                best_key, best_combo = k, combo
+    return best_key, best_combo
+
+
+def best_hands(game_type, hole_cards, board):
+    """Which cards make up a player's best hand(s), as card strings.
+
+    Returns {"hi": [...] or None, "lo": [...] or None}. Split games can
+    return both; razz is low-only so it fills just "lo"; everything else
+    fills just "hi". Returns None if the hand can't be evaluated (unknown
+    game, or not enough cards yet)."""
+    hi = lo = None
+    try:
+        if game_type == "Hold'em":
+            hi = best_high_cards(hole_cards + board)[1]
+        elif game_type == "Omaha":
+            if len(hole_cards) >= 4 and len(board) >= 5:
+                hi = best_omaha_high_cards(hole_cards, board)[1]
+        elif game_type == "Omaha Hi/Lo":
+            if len(hole_cards) >= 4 and len(board) >= 5:
+                hi = best_omaha_high_cards(hole_cards, board)[1]
+                lo = best_omaha_low8_cards(hole_cards, board)[1]
+        elif game_type == "Stud":
+            hi = best_high_cards(hole_cards)[1]
+        elif game_type == "Razz":
+            lo = best_low_cards(hole_cards)[1]
+        elif game_type == "Stud Hi/Lo":
+            hi = best_high_cards(hole_cards)[1]
+            lo = best_low_cards(hole_cards, qualify_8=True)[1]
+        else:
+            return None
+    except (TypeError, ValueError):
+        return None
+    if hi is None and lo is None:
+        return None
+    return {
+        "hi": [card_str(c) for c in hi] if hi else None,
+        "lo": [card_str(c) for c in lo] if lo else None,
+    }
 
 
 # ---------------------------------------------------------------------------

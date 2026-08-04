@@ -14,6 +14,8 @@ action actually moves around a real table.
 import math
 import re
 
+import equity
+
 SEAT_LINE_RE = re.compile(r"^Seat (\d+): (.+?) \(\$?([\d,.]+) in chips\)", re.MULTILINE)
 BUTTON_RE = re.compile(r"Seat #(\d+) is the button")
 STREET_RE = re.compile(r"^\*\*\* ([^*]+?) \*\*\*(.*)$")
@@ -125,18 +127,33 @@ def build_replay(raw_text, game_type, hero_name, big_blind=None):
     known = {n: [] for n in names}      # cards we can actually see
     total_cards = {n: 0 for n in names}  # how many they hold (seen or not)
     won = {n: 0.0 for n in names}
+    shown = set()                        # players who turned their hand over
 
     board = []
     frames = []
     street_label = "Pre-flop" if not is_stud else "3rd Street"
     paid_out = [0.0]  # chips already pushed to a winner - no longer in the pot
 
-    def snapshot(label, actor=None):
+    def best_hand_highlight(player):
+        """Which of a player's cards make up their best hand(s), for the
+        replayer to ring at showdown. Split games can return both a high and
+        a low; razz is low-only. Returns None if it can't be worked out."""
+        best = equity.best_hands(
+            game_type,
+            equity.parse_cards(" ".join(known[player])),
+            equity.parse_cards(" ".join(board)),
+        )
+        if not best:
+            return None
+        return {"seat": names.index(player), "hi": best["hi"], "lo": best["lo"]}
+
+    def snapshot(label, actor=None, highlight=None):
         frames.append({
             "street": street_label,
             "board": list(board),
             "pot": round(sum(committed.values()) - paid_out[0], 2),
             "label": label,
+            "highlight": highlight,
             "seats": [
                 {
                     "stack": round(stack[n], 2),
@@ -235,7 +252,8 @@ def build_replay(raw_text, game_type, hero_name, big_blind=None):
             flush()
             known[m.group(1)] = m.group(2).split()
             total_cards[m.group(1)] = len(known[m.group(1)])
-            snapshot(f"{m.group(1)} shows", actor=m.group(1))
+            shown.add(m.group(1))
+            snapshot(f"{m.group(1)} shows", actor=m.group(1), highlight=best_hand_highlight(m.group(1)))
             continue
 
         m = MUCKS_RE.match(line)
@@ -261,7 +279,10 @@ def build_replay(raw_text, game_type, hero_name, big_blind=None):
             stack[player] += amt
             won[player] += amt
             paid_out[0] += amt
-            snapshot(f"{player} wins {amt:,.0f}", actor=player)
+            # Keep the winner's hand ringed on the frame where they take the
+            # pot - but only if they actually showed it.
+            snapshot(f"{player} wins {amt:,.0f}", actor=player,
+                     highlight=best_hand_highlight(player) if player in shown else None)
             continue
 
         matched = False

@@ -23,6 +23,16 @@ function backHtml(n, extraClass) {
   return out;
 }
 
+/** Ring classes for a card that's part of the currently-highlighted best
+ *  hand. A card can serve both ways in a split game, so both can apply. */
+function usedClasses(card, hl) {
+  if (!hl) return "";
+  const out = [];
+  if (hl.hi && hl.hi.indexOf(card) !== -1) out.push("used-hi");
+  if (hl.lo && hl.lo.indexOf(card) !== -1) out.push("used-lo");
+  return out.join(" ");
+}
+
 function fmtChips(v) {
   if (v === 0) return "0";
   if (Math.abs(v) >= 1000000) return (v / 1000000).toFixed(2) + "M";
@@ -83,6 +93,7 @@ class HandReplayer {
           <a href="#" class="unit-opt" data-unit="bb">BB</a>
         </div>` : ""}
         <span class="replay-status"></span>
+        <span class="replay-legend" style="display:none"></span>
       </div>
       <div class="replay-scrub"><input type="range" min="0" max="${this.data.frames.length - 1}" value="0"></div>
     `;
@@ -91,6 +102,7 @@ class HandReplayer {
     this.potEl = this.root.querySelector(".pot-display");
     this.seatEls = Array.from(this.root.querySelectorAll(".seat"));
     this.statusEl = this.root.querySelector(".replay-status");
+    this.legendEl = this.root.querySelector(".replay-legend");
     this.scrub = this.root.querySelector(".replay-scrub input");
     this.playBtn = this.root.querySelector('[data-act="play"]');
 
@@ -152,7 +164,17 @@ class HandReplayer {
 
   render() {
     const f = this.data.frames[this.i];
-    this.boardEl.innerHTML = f.board.map((c) => cardHtml(c)).join("");
+    const hl = f.highlight || null;
+
+    // Board cards belong to whichever player's hand is currently ringed, so
+    // they follow the same highlight.
+    this.boardEl.innerHTML = f.board.map((c) => cardHtml(c, usedClasses(c, hl))).join("");
+    this.legendEl.style.display = hl && (hl.hi || hl.lo) ? "" : "none";
+    if (hl) {
+      this.legendEl.innerHTML =
+        (hl.hi ? '<span><i class="ring-hi"></i>best high hand</span>' : "") +
+        (hl.lo ? '<span><i class="ring-lo"></i>best low hand</span>' : "");
+    }
     this.potEl.innerHTML = `<span class="pot-label">Pot</span> <span class="pot-amount">${this.fmt(f.pot)}</span>`;
     this.statusEl.textContent = `${this.i + 1} / ${this.data.frames.length} · ${f.street} · ${f.label}`;
     this.scrub.value = this.i;
@@ -168,9 +190,23 @@ class HandReplayer {
       const bet = el.querySelector(".seat-bet");
       bet.innerHTML = s.bet > 0 ? `<span class="chip-dot"></span>${this.fmt(s.bet)}` : "";
       bet.style.visibility = s.bet > 0 ? "visible" : "hidden";
+      // Lay the seat out in deal order so positions line up: any leading
+      // face-down cards, then what we can see, then any trailing ones.
       const before = s.hidden_before || 0;
-      el.querySelector(".seat-cards").innerHTML =
-        backHtml(before, size) + s.cards.map((c) => cardHtml(c, size)).join("") + backHtml(s.hidden - before, size);
+      const items = [];
+      for (let k = 0; k < before; k++) items.push(null);
+      s.cards.forEach((c) => items.push(c));
+      for (let k = 0; k < s.hidden - before; k++) items.push(null);
+
+      const seatHl = hl && hl.seat === idx ? hl : null;
+      el.querySelector(".seat-cards").innerHTML = items.map((c, pos) => {
+        // Stud deals cards 3-6 face up; 1, 2 and 7 stay down. Nudging the
+        // up-cards proud of the row makes that split readable at a glance.
+        const cls = [size];
+        if (this.data.is_stud && pos >= 2 && pos <= 5) cls.push("up-card");
+        if (c) cls.push(usedClasses(c, seatHl));
+        return c ? cardHtml(c, cls.join(" ")) : backHtml(1, cls.join(" "));
+      }).join("");
     });
   }
 }
