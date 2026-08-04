@@ -3,6 +3,7 @@ import time
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 
 import db
+import replay
 import watcher
 
 
@@ -289,7 +290,8 @@ def hand_detail(hand_id):
     hand = db.get_hand(hand_id)
     if not hand:
         return "Hand not found", 404
-    return render_template("hand.html", hand=hand, preset_tags=PRESET_TAGS,
+    replay_data = replay.build_replay(hand["raw_text"], hand["game_type"], hand["hero_name"])
+    return render_template("hand.html", hand=hand, replay_data=replay_data, preset_tags=PRESET_TAGS,
                             preset_colors=PRESET_TAG_COLORS, preset_descriptions=PRESET_TAG_DESCRIPTIONS)
 
 

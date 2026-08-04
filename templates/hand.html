@@ -14,7 +14,18 @@
     <div><span class="k">Table</span>{{ hand.table_name }}</div>
   </div>
 
-  <pre class="raw-hand">{{ hand.raw_text }}</pre>
+  {% if replay_data %}
+  <div class="replay-wrap" id="replayer"></div>
+  <script src="{{ url_for('static', filename='replayer.js') }}"></script>
+  <script>
+    new HandReplayer(document.getElementById('replayer'), {{ replay_data|tojson }});
+  </script>
+  {% endif %}
+
+  <details class="raw-details">
+    <summary>Raw hand history</summary>
+    <pre class="raw-hand">{{ hand.raw_text }}</pre>
+  </details>
 
   <div class="tag-section">
     <strong>Tags</strong>
