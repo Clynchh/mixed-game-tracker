@@ -7,7 +7,11 @@ import os
 import json
 from contextlib import contextmanager
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tracker.db")
+# Overridable so a second copy (or a test run) can point at its own file
+# instead of the one sitting next to the code.
+DB_PATH = os.environ.get("MGT_DB_PATH") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "tracker.db"
+)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS hands (

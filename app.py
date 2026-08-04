@@ -4,6 +4,7 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for
 
 import db
 import replay
+import support_config
 import watcher
 
 
@@ -43,6 +44,89 @@ PRESET_TAGS = [
 ]
 PRESET_TAG_COLORS = dict(PRESET_TAGS)
 DASHBOARD_ROW_LIMIT = 100
+
+def is_configured():
+    """Both of these are needed before any number the app shows is
+    trustworthy - without the username it can't tell which player is you in
+    stud, and without the folder there's nothing to read."""
+    return bool(get_folder() and get_username())
+
+
+@app.before_request
+def require_setup():
+    """Send a fresh install to the welcome screen rather than an empty
+    dashboard that silently reports nothing."""
+    if is_configured():
+        return None
+    allowed = {"setup", "save_setup", "settings", "static", "support"}
+    if request.endpoint in allowed:
+        return None
+    return redirect(url_for("setup"))
+
+
+@app.context_processor
+def inject_globals():
+    """Available to every template - the nav needs to know whether there's a
+    Support page to link to."""
+    return {"support_enabled": support_config.is_enabled()}
+
+
+@app.route("/setup")
+def setup():
+    return render_template(
+        "setup.html",
+        candidates=watcher.detect_hand_history_folders(),
+        folder=get_folder(),
+        username=get_username(),
+        reconfiguring=is_configured(),
+    )
+
+
+@app.route("/setup", methods=["POST"], endpoint="save_setup")
+def save_setup():
+    folder = request.form.get("hand_history_dir", "").strip()
+    username = request.form.get("hero_username", "").strip()
+    errors = []
+    if not username:
+        errors.append("Enter the exact screen name you play under.")
+    if not folder:
+        errors.append("Choose or enter your hand history folder.")
+    elif not os.path.isdir(folder):
+        errors.append(f"That folder doesn't exist: {folder}")
+
+    if errors:
+        return render_template(
+            "setup.html",
+            candidates=watcher.detect_hand_history_folders(),
+            folder=folder,
+            username=username,
+            errors=errors,
+            reconfiguring=is_configured(),
+        )
+
+    db.set_setting("hand_history_dir", folder)
+    db.set_setting("hero_username", username)
+    watcher.scan_folder(folder, hero_username=username)
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/support")
+def support():
+    if not support_config.is_enabled():
+        return redirect(url_for("dashboard"))
+    return render_template(
+        "support.html",
+        options=support_config.configured_options(),
+        blurb=support_config.SUPPORT_BLURB,
+        contact=support_config.SUPPORT_CONTACT,
+    )
+
+
+@app.route("/support/dismiss", methods=["POST"])
+def dismiss_support_note():
+    db.set_setting("support_note_dismissed", "1")
+    return jsonify({"ok": True})
+
 
 def default_unit_for(mode):
     """Tournament chip counts only mean something relative to the blind level
@@ -185,6 +269,11 @@ def dashboard():
         total_hands=cash_count + tourney_count,
         matching_hands=matching_hands,
         show_all=show_all,
+        # Mentioned once, only after the app has actually been useful for a
+        # while, and permanently dismissible. Never blocks anything.
+        show_support_note=(support_config.is_enabled()
+                           and db.get_setting("support_note_dismissed") != "1"
+                           and (cash_count + tourney_count) >= 500),
         tourney_results=tourney_results,
         tourney_roi=tourney_roi,
         tourney_avg_buyin=tourney_avg_buyin,

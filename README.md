@@ -17,30 +17,47 @@ entirely since there's no interaction with the client while you play.
 
 ## Setup
 
+You need Python 3 installed. Then:
+
 ```bash
 pip install -r requirements.txt
-python3 app.py
+python app.py
 ```
 
-Then open **http://127.0.0.1:5151** in your browser.
+Open **http://127.0.0.1:5151** and it walks you through a two-step setup:
 
-On first load, go to **Settings** and set your hand history folder — this is
-whatever path PokerStars is configured to save hands to
-(Client Settings → Hand History → Hand History Location). It's usually
-something like:
+1. **Your hand history folder.** It looks for PokerStars folders already on
+   your machine and offers them — usually one click. If it doesn't find
+   yours, paste the path in by hand. In PokerStars it's under
+   Settings → Hand History → Hand History Location, and hand history saving
+   needs to be switched on there.
+2. **Your screen name**, spelled exactly as you play under.
 
-- Linux: `~/.PokerStars/HandHistory/<YourScreenName>/`
-- Windows: `C:\Users\<you>\AppData\Local\PokerStars\HandHistory\<YourScreenName>\`
+That second one matters more than it looks. In Hold'em and Omaha the hand
+history only ever shows your own hole cards, so the app could guess which
+player is you. Stud and razz show every player's up-cards, so without your
+exact name it can mistake somebody else for you and report their results as
+yours.
 
-Also set your **PokerStars username** in Settings. Hold'em/Omaha hands only
-ever reveal your own hole cards, so guessing "hero" by file position works
-fine there — but stud/razz hands reveal every player's up-cards each street,
-so without your exact username Mixed Games Tracker can misidentify another player at
-the table as you and get your net result completely wrong.
+After that it scans the folder every 15 seconds for new hands. It's safe to
+point at a folder you're actively playing in — it only ever reads, never
+writes there.
 
-Once set, Mixed Games Tracker scans the folder every 15 seconds for new/changed `.txt`
-files. It's safe to point it at a folder you're actively playing in — it
-only reads, never writes there.
+Your data stays on your own machine. There's no account, no upload, and the
+app makes no network requests at all.
+
+## Distributing it
+
+Everything is per-user and local, so sharing it is just sharing the code —
+`tracker.db` (your hands, your settings) is gitignored and never travels
+with it. Whoever installs it gets the setup screen and their own database.
+
+The app is free. If you want to offer people a way to chip in, see
+`support_config.py` — paste in payment links from a provider like Stripe,
+Ko-fi or GitHub Sponsors and a Support page appears. Leave it empty (the
+default) and there's no Support page and no mention of money anywhere. The
+app never handles payments itself: it only links out to the provider's own
+checkout page, so no keys or card details ever go near it.
 
 ## How it works
 

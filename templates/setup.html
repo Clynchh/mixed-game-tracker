@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Set up · Mixed Games Tracker{% endblock %}
+
+{% block nav %}
+  {% if reconfiguring %}
+  <nav class="top-nav"><a href="/">Dashboard</a><a href="/reports">Reports</a></nav>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="setup-wrap">
+  <h1 class="setup-title">{{ "Change your details" if reconfiguring else "Welcome" }}</h1>
+  <p class="setup-lead">
+    {% if reconfiguring %}
+      Update which player you are and where your hands are read from.
+    {% else %}
+      Two things and you're tracking. Everything stays on this computer &mdash;
+      the app only ever reads hand history files you've already saved, and it
+      never connects to the internet or touches the poker client.
+    {% endif %}
+  </p>
+
+  {% if errors %}
+  <div class="setup-errors">
+    {% for e in errors %}<div>{{ e }}</div>{% endfor %}
+  </div>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('save_setup') }}" class="setup-form">
+
+    {% if candidates %}
+    <div class="setup-step">
+      <div class="setup-step-head"><span class="step-num">1</span> Pick your hand history folder</div>
+      <p class="setup-hint">Found these on this computer &mdash; click one to use it.</p>
+      <div class="detected-list">
+        {% for c in candidates %}
+        <button type="button" class="detected"
+                data-path="{{ c.path }}" data-username="{{ c.username }}">
+          <div class="detected-name">{{ c.username }}</div>
+          <div class="detected-meta">{{ c.client }} &middot; {{ c.files }} file{{ '' if c.files == 1 else 's' }}</div>
+          <div class="detected-path">{{ c.path }}</div>
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="setup-step">
+      <div class="setup-step-head">
+        <span class="step-num">{{ '2' if candidates else '1' }}</span>
+        {{ "Or enter the folder yourself" if candidates else "Your hand history folder" }}
+      </div>
+      <input type="text" id="hand_history_dir" name="hand_history_dir" value="{{ folder }}"
+             placeholder="C:\Users\you\AppData\Local\PokerStars\HandHistory\YourName">
+      <p class="setup-hint">
+        In PokerStars this is under Settings &rarr; Hand History &rarr; Hand History Location.
+        Make sure saving hand histories is switched on there.
+      </p>
+    </div>
+
+    <div class="setup-step">
+      <div class="setup-step-head">
+        <span class="step-num">{{ '3' if candidates else '2' }}</span> Your screen name
+      </div>
+      <input type="text" id="hero_username" name="hero_username" value="{{ username }}"
+             placeholder="the exact name you play under">
+      <p class="setup-hint">
+        Spelling and capitalisation have to match exactly. In stud and razz every
+        player's up-cards appear in the hand history, so without this the app
+        can't tell which of them is you &mdash; and would report someone else's
+        results as yours.
+      </p>
+    </div>
+
+    <button type="submit" class="setup-submit">
+      {{ "Save" if reconfiguring else "Start tracking" }}
+    </button>
+  </form>
+</div>
+
+<script>
+  document.querySelectorAll(".detected").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      // The folder inside HandHistory is named after the screen name, so
+      // picking a folder fills in both answers at once.
+      document.getElementById("hand_history_dir").value = btn.dataset.path;
+      document.getElementById("hero_username").value = btn.dataset.username;
+      document.querySelectorAll(".detected").forEach((b) => b.classList.remove("chosen"));
+      btn.classList.add("chosen");
+    });
+  });
+</script>
+{% endblock %}

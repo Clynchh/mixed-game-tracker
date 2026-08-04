@@ -16,6 +16,44 @@ import parser as hh_parser
 
 SCAN_INTERVAL_SECONDS = 15
 
+# Where the PokerStars clients keep hand histories. Each regional client
+# (.UK, .EU, .ES ...) installs to its own folder, and inside HandHistory
+# there's one folder per screen name - so finding these also tells us what
+# the player's username is, which is the other thing setup needs.
+_HH_SEARCH_ROOTS = [
+    os.path.expandvars(r"%LOCALAPPDATA%"),
+    os.path.expandvars(r"%APPDATA%"),
+    os.path.expanduser("~/Library/Application Support"),
+    os.path.expanduser("~"),
+]
+
+
+def detect_hand_history_folders():
+    """Best-effort scan for PokerStars hand-history folders already on this
+    machine. Returns [{"path", "username", "client", "files"}] sorted with
+    the most-used first, or [] if nothing turns up - setup always allows
+    typing a path by hand."""
+    found = {}
+    for root in _HH_SEARCH_ROOTS:
+        if not root or not os.path.isdir(root):
+            continue
+        for pattern in ("PokerStars*/HandHistory/*", ".PokerStars*/HandHistory/*"):
+            for path in glob.glob(os.path.join(root, pattern)):
+                if not os.path.isdir(path) or path in found:
+                    continue
+                try:
+                    n_files = len(glob.glob(os.path.join(path, "**", "*.txt"), recursive=True))
+                except OSError:
+                    n_files = 0
+                client = os.path.basename(os.path.dirname(os.path.dirname(path)))
+                found[path] = {
+                    "path": path,
+                    "username": os.path.basename(path),
+                    "client": client.lstrip("."),
+                    "files": n_files,
+                }
+    return sorted(found.values(), key=lambda c: -c["files"])
+
 
 def scan_folder(folder, hero_username=None, on_new_hand=None):
     """Scan every .txt file in folder (recursively). Skips files whose

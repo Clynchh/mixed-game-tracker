@@ -11,14 +11,17 @@
 <body>
   <header class="top">
     <div class="brand"><a href="/">Mixed Games Tracker</a></div>
+    {% block nav %}
     <nav class="top-nav">
       <a href="/">Dashboard</a>
       <a href="/reports">Reports</a>
+      {% if support_enabled %}<a href="/support">Support</a>{% endif %}
     </nav>
     <div class="meta">
       {% block header_meta %}{% endblock %}
       <a href="/settings" class="btn-ghost btn" style="padding:5px 12px;">Settings</a>
     </div>
+    {% endblock %}
   </header>
   <main>
     {% block content %}{% endblock %}

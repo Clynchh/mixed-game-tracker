@@ -31,6 +31,22 @@
   </div>
 {% else %}
 
+  {% if show_support_note %}
+  <div class="support-note" id="support-note">
+    <div class="support-note-text">
+      Getting value out of this? It's free and stays free &mdash;
+      <a href="/support">but you can chip in if you'd like to</a>.
+    </div>
+    <button type="button" class="btn-ghost" onclick="dismissSupportNote()">Dismiss</button>
+  </div>
+  <script>
+    function dismissSupportNote() {
+      fetch('/support/dismiss', {method: 'POST'});
+      document.getElementById('support-note').remove();
+    }
+  </script>
+  {% endif %}
+
   <div class="tabs-row">
     <div class="mode-tabs">
       {# No unit on these - switching tab lands on that mode's own default
