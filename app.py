@@ -86,8 +86,22 @@ def dashboard():
         sd_cum.append(sd_running)
         nonsd_cum.append(nonsd_running)
 
+    # All-in EV line: same as main, except all-in-before-completion hands use
+    # their equity-adjusted result instead of what the runout actually paid,
+    # so short-term variance from lucky/unlucky cards washes out of this line.
+    ev_values = [
+        ((h["ev_net"] / h["big_blind"]) if (unit == "bb") else h["ev_net"]) if h["is_allin_ev"] else v
+        for h, v in zip(series_hands, hand_values)
+    ]
+    ev_cum = charts.cumulative(ev_values)
+    allin_ev_hands = [h for h in series_hands if h["is_allin_ev"]]
+    if unit == "bb":
+        ev_luck = sum((h["hero_net"] - h["ev_net"]) / h["big_blind"] for h in allin_ev_hands)
+    else:
+        ev_luck = sum((h["hero_net"] - h["ev_net"]) for h in allin_ev_hands)
+
     hand_graph_svg = charts.multi_line_svg(
-        main_cum, overlays=[(sd_cum, "#4a90d9"), (nonsd_cum, "#c0564f")]
+        main_cum, overlays=[(sd_cum, "#4a90d9"), (nonsd_cum, "#c0564f"), (ev_cum, "#a855f7")]
     )
 
     tourney_results = None
@@ -125,6 +139,8 @@ def dashboard():
         tourney_graph_svg=tourney_graph_svg,
         hand_graph_svg=hand_graph_svg,
         hand_graph_count=len(hand_values),
+        allin_ev_count=len(allin_ev_hands),
+        ev_luck=ev_luck,
         last_scan_new=fw.last_scan_new,
         last_scan_time=fw.last_scan_time,
         preset_tags=PRESET_TAGS,

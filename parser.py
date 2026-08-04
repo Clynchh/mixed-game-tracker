@@ -12,6 +12,8 @@ completes, draws, etc.)
 import re
 from datetime import datetime
 
+import equity
+
 HAND_SPLIT_RE = re.compile(r"(?=^PokerStars (?:Hand|Game) #\d+)", re.MULTILINE)
 
 HEADER_RE = re.compile(
@@ -84,6 +86,23 @@ UNCALLED_RE = re.compile(r"^Uncalled bet \(\$?([\d,.]+)\) returned to (\S+)")
 POT_TOTAL_RE = re.compile(r"^Total pot \$?([\d,.]+)")
 SEAT_COUNT_RE = re.compile(r"^Seat \d+:")
 SHOWDOWN_RE = re.compile(r"^\*\*\* SHOW DOWN \*\*\*", re.MULTILINE)
+
+# --- All-in EV inputs -------------------------------------------------
+BOARD_LINE_RE = re.compile(r"^\*\*\* (FLOP|TURN|RIVER) \*\*\*((?:\s*\[[^\]]*\])+)", re.MULTILINE)
+FOLD_LINE_RE = re.compile(r"^(\S+): folds")
+ALLIN_LINE_RE = re.compile(r"^(\S+): .*and is all-in")
+SHOWS_RE = re.compile(r"^(\S+): shows \[([^\]]*)\]", re.MULTILINE)
+
+# Games equity.py has evaluators for. 2-7 draw games are excluded - hands
+# only ever fully reveal at showdown there too, but modeling a draw (players
+# choosing which cards to replace) is a different kind of simulation than
+# "deal N more random cards", and isn't built.
+EQUITY_GAME_TYPES = {"Hold'em", "Omaha", "Omaha Hi/Lo", "Razz", "Stud", "Stud Hi/Lo"}
+
+STUD_STREET_ORDER = ["3rd street", "4th street", "5th street", "6th street", "7th street"]
+STUD_STREET_CARDS = {"3rd street": 3, "4th street": 4, "5th street": 5, "6th street": 6, "7th street": 7}
+FLOP_STREET_ORDER = ["hole cards", "flop", "turn", "river"]
+FLOP_STREET_BOARD_CARDS = {"hole cards": 0, "flop": 3, "turn": 4, "river": 5}
 
 # Pot-type classification (limped / raised / 3-bet / 4-bet, or stud's
 # limped / completed / 3-bet / 4-bet) is based on the opening betting round
@@ -272,6 +291,153 @@ def _compute_money(text, hero_name):
     return invested, collected, pot_total
 
 
+def _street_blocks(text):
+    """[(street_name_lower, block_text), ...] in order (drops the preamble
+    before the first street header - nothing before "*** ... ***" matters
+    for all-in/board tracking)."""
+    headers = list(STREET_HEADER_RE.finditer(text))
+    blocks = []
+    for i, h in enumerate(headers):
+        start = h.end()
+        end = headers[i + 1].start() if i + 1 < len(headers) else len(text)
+        blocks.append((h.group(1).lower(), text[start:end]))
+    return blocks
+
+
+def _board_at_street(text, street_name):
+    """Community board cards known as of (and including) street_name."""
+    board = []
+    for m in BOARD_LINE_RE.finditer(text):
+        street = m.group(1).lower()
+        groups = BRACKET_RE.findall(m.group(2))
+        board.extend(groups[-1].split() if groups else [])
+        if street == street_name:
+            break
+    return board
+
+
+def _find_lock_street(text, hero_name, street_order):
+    """Earliest street after which the pot hero can win is fully decided -
+    hero is all-in, or hero isn't but every other still-in player is (hero
+    covers the table). None if that never happens, or only happens on the
+    final street (nothing left to run out, so no randomness to adjust for)."""
+    seats = set(SEAT_RE.findall(text))
+    if hero_name not in seats:
+        return None
+
+    folded, allin = set(), set()
+    for street_name, block in _street_blocks(text):
+        if street_name not in street_order:
+            continue
+        for line in block.splitlines():
+            line = line.strip()
+            fm = FOLD_LINE_RE.match(line)
+            if fm:
+                folded.add(fm.group(1))
+                continue
+            am = ALLIN_LINE_RE.match(line)
+            if am:
+                allin.add(am.group(1))
+
+        still_in = seats - folded
+        if hero_name not in still_in:
+            return None  # hero folded - no EV question to ask
+
+        others = still_in - {hero_name}
+        hero_locked = hero_name in allin
+        others_all_allin = bool(others) and others.issubset(allin)
+        if hero_locked or others_all_allin:
+            return None if street_name == street_order[-1] else street_name
+
+    return None
+
+
+def compute_allin_ev(raw_text, game_type, hero_name, hero_cards, went_to_showdown, pot_total, trials=3000):
+    """Runs an equity simulation for hands where the pot was effectively
+    decided before all the cards were dealt. Returns {"equity_pct",
+    "ev_net", "eligible_pot"} or None if this hand doesn't qualify - not an
+    all-in-before-completion pot, unsupported game type, or a contesting
+    opponent's cards were never revealed (mucked without showing, so their
+    range is unknowable from the hand history alone)."""
+    if not went_to_showdown or game_type not in EQUITY_GAME_TYPES or not hero_name or pot_total is None:
+        return None
+
+    is_stud = game_type in STUD_GAME_TYPES
+    street_order = STUD_STREET_ORDER if is_stud else FLOP_STREET_ORDER
+
+    lock_street = _find_lock_street(raw_text, hero_name, street_order)
+    if lock_street is None:
+        return None
+
+    shown = dict(SHOWS_RE.findall(raw_text))
+    if hero_name not in shown:
+        shown[hero_name] = hero_cards  # hero's own cards are always known regardless of a "shows" line
+    contestants = list(shown.keys())
+    if len(contestants) < 2:
+        return None
+
+    known_hands = {}
+    if is_stud:
+        # Stud "shows" lines (and hero's own reconstructed hand, from
+        # multi-street "Dealt to" concatenation) list cards in deal order:
+        # 2 down, then one up-card per street 3rd-6th, then the final down
+        # card on 7th - verified against real hand histories, where the
+        # up-cards embedded in that order line up exactly with what each
+        # street's "Dealt to" reveal showed. That means slicing to the
+        # first N cards for a given street is exactly "what was known then"
+        # - including hidden down cards - without needing to identify which
+        # specific cards were down vs up.
+        board_to_deal, known_board = 0, []
+        cutoff = STUD_STREET_CARDS[lock_street]
+        cards_per_player = 7 - cutoff
+        for name in contestants:
+            full_cards = shown[name].split()
+            if len(full_cards) < cutoff:
+                return None
+            cards = equity.parse_cards(" ".join(full_cards[:cutoff]))
+            if len(cards) != cutoff:
+                return None
+            known_hands[name] = cards
+    else:
+        known_board = equity.parse_cards(" ".join(_board_at_street(raw_text, lock_street)))
+        board_to_deal = 5 - FLOP_STREET_BOARD_CARDS[lock_street]
+        cards_per_player = 0
+        for name in contestants:
+            cards = equity.parse_cards(shown[name])
+            if len(cards) < 2:
+                return None
+            known_hands[name] = cards
+
+    if board_to_deal <= 0 and cards_per_player <= 0:
+        return None  # already fully dealt - nothing random left to adjust for
+
+    result = equity.simulate_equity(game_type, known_hands, known_board, board_to_deal, cards_per_player, trials=trials)
+    if not result or hero_name not in result:
+        return None
+
+    # Hero's eligible pot: cap each contestant's counted contribution at
+    # hero's own investment (the standard side-pot slice for hero's stake),
+    # plus dead money from anyone who folded earlier - that's already
+    # irrevocably in the pot and isn't capped by anyone's stack. This is an
+    # approximation for exotic multi-tier side pots (needs each contestant's
+    # full-hand investment, which _compute_money already tracks generically
+    # per player), but matches exactly whenever hero covers the table or
+    # there's only one side-pot tier, which is the overwhelming majority of
+    # real hands.
+    invested = {name: _compute_money(raw_text, name)[0] for name in contestants}
+    hero_inv = invested[hero_name]
+    capped_total = sum(min(inv, hero_inv) for inv in invested.values())
+    dead_money = max(0.0, pot_total - sum(invested.values()))
+    eligible_pot = capped_total + dead_money
+
+    hero_equity = result[hero_name]
+    return {
+        "equity_pct": round(hero_equity, 4),
+        "eligible_pot": round(eligible_pot, 4),
+        "ev_net": round(hero_equity * eligible_pot - hero_inv, 4),
+    }
+
+
 def parse_hand(raw_text, source_file="", hero_username=None):
     """Parse a single hand block. Returns dict or None if unparseable."""
     header = HEADER_RE.search(raw_text)
@@ -314,6 +480,8 @@ def parse_hand(raw_text, source_file="", hero_username=None):
     pot_type = _classify_pot_type(raw_text, game_type)
     went_to_showdown = _went_to_showdown(raw_text, hero_name)
 
+    allin_ev = compute_allin_ev(raw_text, game_type, hero_name, hero_cards, went_to_showdown, pot_total)
+
     tourney_finish_place = None
     tourney_payout = None
     if tourney_id and hero_name:
@@ -339,6 +507,9 @@ def parse_hand(raw_text, source_file="", hero_username=None):
         "pot_total": pot_total,
         "pot_type": pot_type,
         "went_to_showdown": 1 if went_to_showdown else 0,
+        "is_allin_ev": 1 if allin_ev else 0,
+        "equity_pct": allin_ev["equity_pct"] if allin_ev else None,
+        "ev_net": allin_ev["ev_net"] if allin_ev else None,
         "big_blind": big_blind,
         "num_players": len(seats),
         "source_file": source_file,

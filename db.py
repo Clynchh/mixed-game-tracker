@@ -27,6 +27,9 @@ CREATE TABLE IF NOT EXISTS hands (
     pot_total     REAL,
     pot_type      TEXT,
     went_to_showdown INTEGER,
+    is_allin_ev   INTEGER,
+    equity_pct    REAL,
+    ev_net        REAL,
     big_blind     REAL,
     num_players   INTEGER,
     source_file   TEXT,
@@ -96,6 +99,10 @@ def _migrate(conn):
         conn.execute("ALTER TABLE hands ADD COLUMN pot_type TEXT")
     if "went_to_showdown" not in cols:
         conn.execute("ALTER TABLE hands ADD COLUMN went_to_showdown INTEGER")
+    if "is_allin_ev" not in cols:
+        conn.execute("ALTER TABLE hands ADD COLUMN is_allin_ev INTEGER")
+        conn.execute("ALTER TABLE hands ADD COLUMN equity_pct REAL")
+        conn.execute("ALTER TABLE hands ADD COLUMN ev_net REAL")
 
 
 def init_db():
@@ -113,12 +120,12 @@ def upsert_hand(hand: dict) -> bool:
             """INSERT INTO hands
                (hand_id, game_type, limit_type, stakes, is_tournament, tournament_id,
                 table_name, date_played, hero_name, hero_cards, hero_invested,
-                hero_collected, hero_net, pot_total, pot_type, went_to_showdown, big_blind,
-                num_players, source_file, raw_text)
+                hero_collected, hero_net, pot_total, pot_type, went_to_showdown,
+                is_allin_ev, equity_pct, ev_net, big_blind, num_players, source_file, raw_text)
                VALUES (:hand_id, :game_type, :limit_type, :stakes, :is_tournament, :tournament_id,
                        :table_name, :date_played, :hero_name, :hero_cards, :hero_invested,
-                       :hero_collected, :hero_net, :pot_total, :pot_type, :went_to_showdown, :big_blind,
-                       :num_players, :source_file, :raw_text)
+                       :hero_collected, :hero_net, :pot_total, :pot_type, :went_to_showdown,
+                       :is_allin_ev, :equity_pct, :ev_net, :big_blind, :num_players, :source_file, :raw_text)
                ON CONFLICT(hand_id) DO UPDATE SET
                  game_type=excluded.game_type, limit_type=excluded.limit_type, stakes=excluded.stakes,
                  is_tournament=excluded.is_tournament, tournament_id=excluded.tournament_id,
@@ -126,7 +133,8 @@ def upsert_hand(hand: dict) -> bool:
                  hero_name=excluded.hero_name, hero_cards=excluded.hero_cards,
                  hero_invested=excluded.hero_invested, hero_collected=excluded.hero_collected,
                  hero_net=excluded.hero_net, pot_total=excluded.pot_total, pot_type=excluded.pot_type,
-                 went_to_showdown=excluded.went_to_showdown, big_blind=excluded.big_blind,
+                 went_to_showdown=excluded.went_to_showdown, is_allin_ev=excluded.is_allin_ev,
+                 equity_pct=excluded.equity_pct, ev_net=excluded.ev_net, big_blind=excluded.big_blind,
                  num_players=excluded.num_players, source_file=excluded.source_file, raw_text=excluded.raw_text""",
             hand,
         )

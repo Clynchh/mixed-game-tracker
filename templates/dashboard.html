@@ -75,6 +75,9 @@
     <div><span class="big {{ 'pos' if (overall_net or 0) >= 0 else 'neg' }}">{{ '%.2f'|format(overall_net or 0) }}{{ ' bb' if unit == 'bb' and overall.net_bb is not none else '' }}</span> <span class="lbl">{{ net_label }}</span></div>
     <div><span class="big">{{ overall.hands }}</span> <span class="lbl">hands tracked</span></div>
     <div><span class="big">{{ '%.2f'|format(overall.bb_per_100) if overall.bb_per_100 is not none else 'n/a' }}</span> <span class="lbl">bb/100</span></div>
+    {% if allin_ev_count %}
+    <div><span class="big {{ 'pos' if ev_luck >= 0 else 'neg' }}">{{ '%+.2f'|format(ev_luck) }}{{ ' bb' if unit == 'bb' else '' }}</span> <span class="lbl">all-in luck ({{ allin_ev_count }})</span></div>
+    {% endif %}
   </div>
 
   <div class="chart-card">
@@ -88,6 +91,7 @@
       <span><i style="background:var(--gold-dim)"></i>total</span>
       <span><i style="background:#4a90d9"></i>with showdown</span>
       <span><i style="background:#c0564f"></i>without showdown</span>
+      <span><i style="background:#a855f7"></i>all-in EV-adjusted</span>
     </div>
     {% else %}<div class="chart-empty">No hands to graph yet.</div>{% endif %}
   </div>
