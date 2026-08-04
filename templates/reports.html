@@ -26,7 +26,7 @@
   </div>
 </div>
 
-<form class="controls" method="get" style="flex-wrap:wrap;align-items:flex-start;">
+<form class="controls" method="get" data-autofilter style="flex-wrap:wrap;align-items:flex-start;">
   <select name="mode">
     <option value="" {{ 'selected' if mode == '' }}>cash + tournament</option>
     <option value="cash" {{ 'selected' if mode == 'cash' }}>cash only</option>
@@ -88,8 +88,7 @@
   <input type="hidden" name="sort" value="{{ sort }}">
   <input type="hidden" name="order" value="{{ order }}">
   <input type="hidden" name="unit" value="{{ unit }}">
-  <button type="submit">Filter</button>
-  <a href="{{ url_for('reports', unit=unit) }}" class="btn btn-ghost">Clear</a>
+  <a href="{{ url_for('reports', unit=unit) }}" class="btn btn-ghost">Clear filters</a>
 </form>
 
 {% set net_display = summary.net_bb if unit == 'bb' else summary.net %}

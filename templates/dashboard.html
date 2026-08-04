@@ -155,20 +155,19 @@
   </div>
 
   {% if stats %}
-  <form class="controls" method="get">
+  <form class="controls" method="get" data-autofilter>
     <input type="hidden" name="mode" value="{{ mode }}">
     <input type="hidden" name="unit" value="{{ unit }}">
     {% if selected_game_type %}<input type="hidden" name="game_type" value="{{ selected_game_type }}">{% endif %}
     <input type="text" name="search" placeholder="search raw hand text..." value="{{ search }}">
-    <select name="tag" onchange="this.form.submit()">
+    <select name="tag">
       <option value="">all tags</option>
       {% for t in tags %}
       <option value="{{ t.tag }}" {{ 'selected' if selected_tag == t.tag }}>{{ t.tag }} ({{ t.n }})</option>
       {% endfor %}
     </select>
-    <button type="submit">Filter</button>
     {% if selected_game_type or selected_tag or search %}
-      <a href="{{ url_for('dashboard', mode=mode, unit=unit) }}" class="btn btn-ghost">Clear</a>
+      <a href="{{ url_for('dashboard', mode=mode, unit=unit) }}" class="btn btn-ghost">Clear filters</a>
     {% endif %}
     <span style="flex:1"></span>
     <button type="button" class="btn-ghost" onclick="rescanNow()">Rescan now</button>

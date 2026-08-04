@@ -41,6 +41,29 @@ function initRangeSlider(container) {
   update();
 }
 
+/* Filter forms apply themselves as you change them, so there's no Filter
+   button to press. Everything listens for "change" rather than "input":
+   on a dropdown or checkbox that's immediate, on a slider it fires when you
+   let go of the handle (not continuously through the drag), and on a text
+   box when you press Enter or click away - so a page reload never yanks the
+   cursor out from under you mid-word. */
+function initAutoFilter(form) {
+  form.querySelectorAll("select, input[type=checkbox], input[type=range]").forEach((el) => {
+    el.addEventListener("change", () => form.submit());
+  });
+  form.querySelectorAll("input[type=text], input[type=number]").forEach((el) => {
+    el.addEventListener("change", () => form.submit());
+    // These forms have no submit button, so Enter needs handling explicitly.
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        form.submit();
+      }
+    });
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll(".range-slider").forEach(initRangeSlider);
+  document.querySelectorAll("form[data-autofilter]").forEach(initAutoFilter);
 });
