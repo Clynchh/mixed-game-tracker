@@ -165,16 +165,14 @@ class LineChart {
     const xOf = (i) => (n === 1 ? this.padL : this.padL + (i / (n - 1)) * innerW);
     const yOf = (v) => this.padT + (1 - (v - yMin) / (yMax - yMin)) * innerH;
 
-    // Y-axis gridlines + value labels.
+    // Y-axis gridlines + value labels (evenly spaced ticks).
     const yTicks = 4;
     for (let t = 0; t <= yTicks; t++) {
       const v = yMin + (t / yTicks) * (yMax - yMin);
       const y = yOf(v);
-      const isZero = Math.abs(v) < (yMax - yMin) / (yTicks * 6);
       svg.appendChild(svgEl("line", {
         x1: this.padL, y1: y.toFixed(1), x2: this.width - this.padR, y2: y.toFixed(1),
-        stroke: isZero ? "#454c59" : "#2c313c", "stroke-width": "1",
-        "stroke-dasharray": isZero ? "4,3" : "2,4",
+        stroke: "#2c313c", "stroke-width": "1", "stroke-dasharray": "2,4",
       }));
       const label = svgEl("text", {
         x: this.padL - 6, y: (y + 3).toFixed(1), "text-anchor": "end",
@@ -182,6 +180,23 @@ class LineChart {
       });
       label.textContent = fmtAxisNum(v);
       svg.appendChild(label);
+    }
+
+    // Dedicated zero baseline, drawn separately from the regular ticks so
+    // it's always exactly at 0 (not just whichever tick lands closest) and
+    // clearly stands out - solid and brighter instead of dashed and dim.
+    if (yMin <= 0 && yMax >= 0) {
+      const zeroY = yOf(0);
+      svg.appendChild(svgEl("line", {
+        x1: this.padL, y1: zeroY.toFixed(1), x2: this.width - this.padR, y2: zeroY.toFixed(1),
+        stroke: "#8b90a0", "stroke-width": "1.5",
+      }));
+      const zeroLabel = svgEl("text", {
+        x: this.padL - 6, y: (zeroY + 3).toFixed(1), "text-anchor": "end",
+        class: "chart-axis-label chart-zero-label", "font-size": "10",
+      });
+      zeroLabel.textContent = "0";
+      svg.appendChild(zeroLabel);
     }
 
     // X-axis position labels (a handful, evenly spaced across the visible range).
