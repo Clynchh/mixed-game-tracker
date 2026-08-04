@@ -115,7 +115,18 @@ main { padding: 24px 28px 60px; max-width: 1180px; margin: 0 auto; }
 .chart-title { font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
 .chart-sub { font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
 .chart-empty { padding: 40px 0; text-align: center; color: var(--text-dim); font-size: 13px; }
-.line-chart { width: 100%; height: 180px; display: block; }
+.chart-container { position: relative; }
+.line-chart { width: 100%; height: 180px; display: block; cursor: crosshair; user-select: none; }
+.chart-axis-label { fill: var(--text-dim); font-family: var(--mono); }
+.chart-select-box { fill: var(--gold); fill-opacity: 0.12; stroke: var(--gold-dim); stroke-width: 1; }
+.chart-reset-zoom {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 3px 10px;
+  font-size: 11px;
+  z-index: 1;
+}
 .chart-legend {
   display: flex;
   gap: 16px;
@@ -270,6 +281,8 @@ table.hands td {
 table.hands tr:last-child td { border-bottom: none; }
 table.hands tr:hover { background: var(--panel-2); }
 table.hands td.game { font-family: var(--sans); }
+table.hands tr.pinned-row { background: rgba(201, 162, 74, 0.1); }
+table.hands tr.pinned-row td:first-child { box-shadow: inset 3px 0 0 var(--gold); }
 
 .pill {
   display: inline-block;

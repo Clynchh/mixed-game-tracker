@@ -2,9 +2,17 @@ import os
 import time
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 
-import charts
 import db
 import watcher
+
+
+def _cumsum(values):
+    total = 0.0
+    out = []
+    for v in values:
+        total += v
+        out.append(total)
+    return out
 
 app = Flask(__name__)
 db.init_db()
@@ -71,7 +79,7 @@ def dashboard():
         (h["hero_net"] / h["big_blind"]) if (unit == "bb") else h["hero_net"]
         for h in series_hands
     ]
-    main_cum = charts.cumulative(hand_values)
+    main_cum = _cumsum(hand_values)
 
     # Showdown/non-showdown split, running cumulative on the same x-axis as
     # the main line (each only advances on its own hand type, flat otherwise)
@@ -93,21 +101,25 @@ def dashboard():
         ((h["ev_net"] / h["big_blind"]) if (unit == "bb") else h["ev_net"]) if h["is_allin_ev"] else v
         for h, v in zip(series_hands, hand_values)
     ]
-    ev_cum = charts.cumulative(ev_values)
+    ev_cum = _cumsum(ev_values)
     allin_ev_hands = [h for h in series_hands if h["is_allin_ev"]]
     if unit == "bb":
         ev_luck = sum((h["hero_net"] - h["ev_net"]) / h["big_blind"] for h in allin_ev_hands)
     else:
         ev_luck = sum((h["hero_net"] - h["ev_net"]) for h in allin_ev_hands)
 
-    hand_graph_svg = charts.multi_line_svg(
-        main_cum, overlays=[(sd_cum, "#4a90d9"), (nonsd_cum, "#c0564f"), (ev_cum, "#a855f7")]
-    )
+    # Points for the client-side chart: one per hand, carrying the hand_id so
+    # clicking a point on the graph can look that hand up.
+    hand_points = [
+        {"hand_id": h["hand_id"], "main": round(main_cum[i], 4), "sd": round(sd_cum[i], 4),
+         "nonsd": round(nonsd_cum[i], 4), "ev": round(ev_cum[i], 4)}
+        for i, h in enumerate(series_hands)
+    ]
 
     tourney_results = None
     tourney_roi = None
     tourney_avg_buyin = None
-    tourney_graph_svg = None
+    tourney_points = []
     if mode == "tournament":
         tourney_results = db.tournament_overall()
         if tourney_results.get("n"):
@@ -115,8 +127,11 @@ def dashboard():
                 tourney_roi = (tourney_results["net"] or 0) / tourney_results["total_buyin"] * 100
                 tourney_avg_buyin = tourney_results["total_buyin"] / tourney_results["n"]
             completed = [t for t in db.tournament_stats(order="asc") if t["finish_place"] is not None]
-            t_values = [(t["net"] or 0) for t in completed]
-            tourney_graph_svg = charts.line_svg(charts.cumulative(t_values))
+            t_cum = _cumsum([(t["net"] or 0) for t in completed])
+            tourney_points = [
+                {"tournament_id": t["tournament_id"], "main": round(t_cum[i], 4)}
+                for i, t in enumerate(completed)
+            ]
 
     return render_template(
         "dashboard.html",
@@ -136,8 +151,8 @@ def dashboard():
         tourney_results=tourney_results,
         tourney_roi=tourney_roi,
         tourney_avg_buyin=tourney_avg_buyin,
-        tourney_graph_svg=tourney_graph_svg,
-        hand_graph_svg=hand_graph_svg,
+        tourney_points=tourney_points,
+        hand_points=hand_points,
         hand_graph_count=len(hand_values),
         allin_ev_count=len(allin_ev_hands),
         ev_luck=ev_luck,
@@ -227,6 +242,19 @@ def reports():
         preset_tags=PRESET_TAGS,
         preset_colors=PRESET_TAG_COLORS,
     )
+
+
+@app.route("/api/hand/<hand_id>/row")
+def hand_row_partial(hand_id):
+    """Renders a single hand as a table row - used to pin a hand clicked on
+    the dashboard graph to the top of the hand list without a full reload."""
+    hand = db.get_hand(hand_id)
+    if not hand:
+        return "", 404
+    unit = request.args.get("unit")
+    if unit not in ("raw", "bb"):
+        unit = "raw"
+    return render_template("_hand_row_only.html", h=hand, unit=unit, preset_tags=PRESET_TAGS, preset_colors=PRESET_TAG_COLORS)
 
 
 @app.route("/hand/<hand_id>")

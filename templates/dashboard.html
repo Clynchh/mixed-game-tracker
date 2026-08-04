@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import tag_cell %}
+{% from "_macros.html" import tag_cell, hand_row %}
 {% block title %}Dashboard · MixTrack{% endblock %}
 
 {% block header_meta %}
@@ -59,9 +59,19 @@
   <div class="chart-card">
     <div class="chart-head">
       <span class="chart-title">Tournament results ($, cumulative)</span>
-      <span class="chart-sub">{{ tourney_results.n }} completed</span>
+      <span class="chart-sub">{{ tourney_results.n }} completed &middot; drag to zoom</span>
     </div>
-    {% if tourney_graph_svg %}{{ tourney_graph_svg|safe }}{% else %}<div class="chart-empty">Not enough completed tournaments yet.</div>{% endif %}
+    {% if tourney_points %}
+    <div id="tourney-graph-container"></div>
+    <script>
+      new LineChart(
+        document.getElementById('tourney-graph-container'),
+        {{ tourney_points|tojson }},
+        [{ key: 'main', color: '#5fae6e', width: 2.5 }],
+        {}
+      );
+    </script>
+    {% else %}<div class="chart-empty">Not enough completed tournaments yet.</div>{% endif %}
   </div>
   {% elif mode == 'tournament' %}
   <div class="empty-state" style="padding:20px;margin-bottom:22px;">
@@ -83,16 +93,31 @@
   <div class="chart-card">
     <div class="chart-head">
       <span class="chart-title">Hands graph ({{ 'BB' if unit == 'bb' else ('$' if mode == 'cash' else 'chips') }}, cumulative)</span>
-      <span class="chart-sub">{{ hand_graph_count }} hands</span>
+      <span class="chart-sub">{{ hand_graph_count }} hands &middot; drag to zoom &middot; click a point to pin that hand</span>
     </div>
-    {% if hand_graph_svg %}
-    {{ hand_graph_svg|safe }}
+    {% if hand_points %}
+    <div id="hand-graph-container"></div>
     <div class="chart-legend">
-      <span><i style="background:var(--gold-dim)"></i>total</span>
+      <span><i style="background:#5fae6e"></i>total</span>
       <span><i style="background:#4a90d9"></i>with showdown</span>
       <span><i style="background:#c0564f"></i>without showdown</span>
-      <span><i style="background:#a855f7"></i>all-in EV-adjusted</span>
+      <span><i style="background:#d9b23a"></i>all-in EV-adjusted</span>
     </div>
+    <script>
+      new LineChart(
+        document.getElementById('hand-graph-container'),
+        {{ hand_points|tojson }},
+        [
+          { key: 'nonsd', color: '#c0564f', width: 1.5 },
+          { key: 'sd', color: '#4a90d9', width: 1.5 },
+          { key: 'ev', color: '#d9b23a', width: 1.5 },
+          { key: 'main', color: '#5fae6e', width: 2.5 },
+        ],
+        {
+          onPointClick: function (p) { selectHandFromGraph(p.hand_id, '{{ unit }}'); },
+        }
+      );
+    </script>
     {% else %}<div class="chart-empty">No hands to graph yet.</div>{% endif %}
   </div>
 
@@ -146,17 +171,9 @@
         <th>Tags</th>
       </tr>
     </thead>
-    <tbody>
+    <tbody id="hands-tbody">
       {% for h in hands %}
-      {% set row_net = (h.hero_net / h.big_blind) if (unit == 'bb' and h.big_blind) else h.hero_net %}
-      <tr onclick="window.location='{{ url_for('hand_detail', hand_id=h.hand_id) }}'" style="cursor:pointer">
-        <td>{{ h.date_played[:16] if h.date_played else '' }}</td>
-        <td class="game">{{ h.game_type }} <span class="pill">{{ h.limit_type }}</span></td>
-        <td>{{ h.stakes }}</td>
-        <td>{{ h.hero_cards }}</td>
-        <td class="{{ 'pos' if row_net >= 0 else 'neg' }}">{{ '%.2f'|format(row_net) }}{{ ' bb' if (unit == 'bb' and h.big_blind) else '' }}</td>
-        {{ tag_cell(h, preset_tags, preset_colors) }}
-      </tr>
+      {{ hand_row(h, unit, preset_tags, preset_colors) }}
       {% endfor %}
     </tbody>
   </table>

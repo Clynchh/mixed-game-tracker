@@ -307,6 +307,7 @@ def get_hand(hand_id):
         hand = dict(row)
         tags = conn.execute("SELECT tag, note, created_at FROM tags WHERE hand_id=? ORDER BY created_at", (hand_id,)).fetchall()
         hand["tags"] = [dict(t) for t in tags]
+        hand["tag_list"] = ",".join(t["tag"] for t in tags)  # same shape list_hands() uses, for the shared row template
         return hand
 
 
