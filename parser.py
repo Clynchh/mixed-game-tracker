@@ -460,10 +460,16 @@ def parse_hand(raw_text, source_file="", hero_username=None):
     parens = re.findall(r"\(([^)]+)\)", game_desc)
     stakes = (parens[-1] if tourney_id else parens[0]) if parens else ""
 
+    # Stud levels are written "(small bet/big bet)", not "(small blind/big
+    # blind)" - stud has no blinds at all, just antes + a bring-in. The
+    # completion size on 3rd/4th street is the SMALL bet (the first number),
+    # which is the actual unit hands are effectively played in. Using the
+    # second number (the big bet, only in play from 5th street on) as "one
+    # big blind" would understate every stud/razz hand's size by half.
     big_blind = None
     bb_m = BLIND_SIZE_RE.search(stakes)
     if bb_m:
-        big_blind = _parse_money(bb_m.group(2))
+        big_blind = _parse_money(bb_m.group(1) if game_type in STUD_GAME_TYPES else bb_m.group(2))
 
     tourney_buyin = None
     if tourney_id:
