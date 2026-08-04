@@ -15,16 +15,25 @@ saved them — same category of tool as opening a saved hand history in a
 text editor. This sidesteps PokerStars' HUD/tracking-tool restrictions
 entirely since there's no interaction with the client while you play.
 
-## Setup
+## Getting started
 
-You need Python 3 installed. Then:
+**The easy way — no Python needed.** Download `MixedGamesTracker.exe` from
+the [Releases page](../../releases), put it anywhere you like, and
+double-click it. Your browser opens on the app automatically. Closing the
+black console window quits it.
+
+Windows will likely warn you the file is from an unknown publisher, because
+the download isn't code-signed (signing certificates cost money). "More
+info" → "Run anyway" gets past it.
+
+**From source**, if you'd rather:
 
 ```bash
 pip install -r requirements.txt
 python app.py
 ```
 
-Open **http://127.0.0.1:5151** and it walks you through a two-step setup:
+Either way it walks you through a two-step setup:
 
 1. **Your hand history folder.** It looks for PokerStars folders already on
    your machine and offers them — usually one click. If it doesn't find
@@ -46,18 +55,44 @@ writes there.
 Your data stays on your own machine. There's no account, no upload, and the
 app makes no network requests at all.
 
-## Distributing it
+## Building a release (maintainer notes)
 
-Everything is per-user and local, so sharing it is just sharing the code —
-`tracker.db` (your hands, your settings) is gitignored and never travels
-with it. Whoever installs it gets the setup screen and their own database.
+```bash
+pip install pyinstaller
+pyinstaller MixedGamesTracker.spec
+```
 
-The app is free. If you want to offer people a way to chip in, see
-`support_config.py` — paste in payment links from a provider like Stripe,
-Ko-fi or GitHub Sponsors and a Support page appears. Leave it empty (the
-default) and there's no Support page and no mention of money anywhere. The
-app never handles payments itself: it only links out to the provider's own
-checkout page, so no keys or card details ever go near it.
+That produces a single self-contained `dist/MixedGamesTracker.exe` (~13 MB)
+with Python and every dependency inside, so the person you send it to needs
+nothing installed. Upload it to a GitHub Release — it's deliberately
+gitignored rather than committed, since binaries don't belong in the repo.
+
+PyInstaller can't cross-compile: build the Windows executable on Windows,
+the macOS one on macOS.
+
+A packaged build stores its database under the user's own data folder
+(`%LOCALAPPDATA%\MixedGamesTracker` on Windows) rather than beside the
+executable, so it survives replacing the .exe with a newer one and works
+even if it's been dropped somewhere read-only. Running from source keeps
+`tracker.db` next to the code as before.
+
+Nothing personal travels with a build — `tracker.db` holds all hands and
+settings and is gitignored, so everyone starts on the setup screen with
+their own empty database.
+
+### Taking donations
+
+Off by default. Open `support_config.py` and paste in payment links from a
+provider — Stripe Payment Links, Ko-fi, GitHub Sponsors and PayPal all work.
+Fill in any of one-off / monthly / quarterly / yearly; whichever you set are
+the options offered. Leave them all empty and there's no Support page, no
+nav link and no mention of money anywhere in the app.
+
+The app never processes payments itself, and deliberately so: it runs on
+each player's own machine, so any secret key shipped inside it would be
+readable by everyone holding a copy. It only ever links out to the
+provider's hosted checkout page, meaning no card details, keys or accounts
+go anywhere near this code.
 
 ## How it works
 

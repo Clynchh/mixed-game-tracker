@@ -4,14 +4,37 @@ Everything lives in one SQLite file so the whole tool is portable.
 """
 import sqlite3
 import os
+import sys
 import json
 from contextlib import contextmanager
 
-# Overridable so a second copy (or a test run) can point at its own file
-# instead of the one sitting next to the code.
-DB_PATH = os.environ.get("MGT_DB_PATH") or os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "tracker.db"
-)
+
+def _default_db_path():
+    """Where tracker.db lives.
+
+    Running from source it sits next to the code, which is convenient. But a
+    packaged build may be installed somewhere read-only (Program Files, or
+    a macOS .app bundle), and its temp extraction folder is wiped on exit -
+    writing the database there would lose every hand on close. So a frozen
+    build keeps it in the user's own data directory instead.
+    """
+    if not getattr(sys, "frozen", False):
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "tracker.db")
+
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    elif sys.platform == "darwin":
+        base = os.path.expanduser("~/Library/Application Support")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+
+    folder = os.path.join(base, "MixedGamesTracker")
+    os.makedirs(folder, exist_ok=True)
+    return os.path.join(folder, "tracker.db")
+
+
+# Overridable so a second copy (or a test run) can point at its own file.
+DB_PATH = os.environ.get("MGT_DB_PATH") or _default_db_path()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS hands (

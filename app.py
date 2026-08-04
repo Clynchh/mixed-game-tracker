@@ -1,11 +1,30 @@
 import os
+import sys
+import threading
 import time
+import webbrowser
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 
 import db
 import replay
 import support_config
 import watcher
+
+HOST = "127.0.0.1"
+PORT = int(os.environ.get("MGT_PORT", "5151"))
+
+
+def _flask_app():
+    """A packaged build unpacks templates/static into a temp folder, so Flask
+    has to be pointed at that rather than at the (non-existent) source tree."""
+    if getattr(sys, "frozen", False):
+        base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+        return Flask(
+            __name__,
+            template_folder=os.path.join(base, "templates"),
+            static_folder=os.path.join(base, "static"),
+        )
+    return Flask(__name__)
 
 
 def _cumsum(values):
@@ -16,7 +35,7 @@ def _cumsum(values):
         out.append(total)
     return out
 
-app = Flask(__name__)
+app = _flask_app()
 db.init_db()
 
 DEFAULT_FOLDER = os.environ.get("HAND_HISTORY_DIR", "")
@@ -452,6 +471,41 @@ def rescan():
     return jsonify({"new_hands": n})
 
 
-if __name__ == "__main__":
+def _open_browser_when_ready(url):
+    """Give the server a moment to bind, then open the page. Packaged builds
+    are launched by double-clicking, where nobody is going to go and type a
+    localhost URL themselves."""
+    def go():
+        time.sleep(1.2)
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass  # no browser available - the URL is printed anyway
+    threading.Thread(target=go, daemon=True).start()
+
+
+def main():
+    url = f"http://{HOST}:{PORT}"
+    print("\n  Mixed Games Tracker")
+    print(f"  Open {url} in your browser if it doesn't open by itself.")
+    print(f"  Your data: {db.DB_PATH}")
+    print("  Close this window to stop.\n")
+
+    if os.environ.get("MGT_NO_BROWSER") != "1":
+        _open_browser_when_ready(url)
+
     fw.start()
-    app.run(host="127.0.0.1", port=5151, debug=False)
+    try:
+        app.run(host=HOST, port=PORT, debug=False)
+    except OSError as e:
+        # Nearly always "port already in use" - usually a copy already running.
+        print(f"\n  Couldn't start on port {PORT}: {e}")
+        print(f"  If Mixed Games Tracker is already open, use {url}.")
+        print("  Otherwise set a different port, e.g. MGT_PORT=5152.\n")
+        if getattr(sys, "frozen", False):
+            input("  Press Enter to close.")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

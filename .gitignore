@@ -15,3 +15,9 @@ tracker.db-journal
 .idea/
 .DS_Store
 Thumbs.db
+
+# PyInstaller build output - ship the executable via GitHub Releases,
+# not in the repo
+build/
+dist/
+*.manifest
