@@ -46,10 +46,14 @@ NON_FLUSH_HEADERS = {"hole cards", "pre-draw"}
 DEALT_TO_RE = re.compile(r"^Dealt to (\S+)((?:\s*\[[^\]]*\])+)", re.MULTILINE)
 BRACKET_RE = re.compile(r"\[([^\]]*)\]")
 
-# Big blind / blind-level size: cash stakes look like "$0.01/$0.02 USD", tournament
-# levels look like "600/1200" (chips, no $ sign) - same pattern works for both, take
-# the second (larger) number.
+# The two numbers in a level/stakes string, e.g. "$0.01/$0.02 USD" or
+# "600/1200". What they MEAN depends on the betting structure - see
+# _big_blind_size below.
 BLIND_SIZE_RE = re.compile(r"\$?([\d,]+(?:\.\d+)?)\s*/\s*\$?([\d,]+(?:\.\d+)?)")
+
+# The big blind a player actually put in. This is the definitive source -
+# it doesn't depend on interpreting the level notation at all.
+BIG_BLIND_POST_RE = re.compile(r"^\S+: posts (?:the )?big blind \$?([\d,.]+)", re.MULTILINE)
 
 # Tournament buy-in, e.g. "$50+$5" (buy-in + fee) or "$50+$5+$5" (+bounty) at the
 # very start of the game description. Free/satellite tournaments with no $ prefix
@@ -198,6 +202,40 @@ def _opening_round_block(text):
     start = headers[0].end()
     end = headers[1].start() if len(headers) > 1 else len(text)
     return text[start:end]
+
+
+def _big_blind_size(text, stakes, game_type, limit_type):
+    """Size of one big blind, for normalising results into BB.
+
+    The two numbers in a level mean different things depending on the
+    betting structure, which makes reading them alone unreliable:
+
+      - No-limit/pot-limit "1/2"  -> small blind / big blind, so BB = 2
+      - Fixed-limit "600/1200"    -> small bet / BIG BET. The big blind is
+        the SMALL bet (600); the big bet only applies from the turn on.
+      - Stud/razz "4000/8000"     -> small bet / big bet, and there are no
+        blinds at all (antes + a bring-in instead). The small bet is the
+        closest equivalent unit, which is what the completion is.
+
+    So prefer what a player actually posted - that's unambiguous - and only
+    fall back to interpreting the level when nobody posts a blind (stud).
+    """
+    level = BLIND_SIZE_RE.search(stakes or "")
+    if not level:
+        return None
+    small_bet = _parse_money(level.group(1))
+    big_bet = _parse_money(level.group(2))
+    expected = small_bet if (limit_type == "FL" or game_type in STUD_GAME_TYPES) else big_bet
+
+    posted = [_parse_money(x) for x in BIG_BLIND_POST_RE.findall(text)]
+    if expected in posted:
+        return expected  # the hand itself confirms the structural reading
+    # Otherwise believe a posted blind, as long as it matches the level at all -
+    # a player all-in for less than a full blind shouldn't set the unit.
+    valid = [p for p in posted if p in (small_bet, big_bet)]
+    if valid:
+        return max(valid)
+    return expected
 
 
 def _hero_vpip(text, hero_name):
@@ -471,16 +509,7 @@ def parse_hand(raw_text, source_file="", hero_username=None):
     parens = re.findall(r"\(([^)]+)\)", game_desc)
     stakes = (parens[-1] if tourney_id else parens[0]) if parens else ""
 
-    # Stud levels are written "(small bet/big bet)", not "(small blind/big
-    # blind)" - stud has no blinds at all, just antes + a bring-in. The
-    # completion size on 3rd/4th street is the SMALL bet (the first number),
-    # which is the actual unit hands are effectively played in. Using the
-    # second number (the big bet, only in play from 5th street on) as "one
-    # big blind" would understate every stud/razz hand's size by half.
-    big_blind = None
-    bb_m = BLIND_SIZE_RE.search(stakes)
-    if bb_m:
-        big_blind = _parse_money(bb_m.group(1) if game_type in STUD_GAME_TYPES else bb_m.group(2))
+    big_blind = _big_blind_size(raw_text, stakes, game_type, limit_type)
 
     tourney_buyin = None
     if tourney_id:
