@@ -44,6 +44,14 @@ PRESET_TAGS = [
 PRESET_TAG_COLORS = dict(PRESET_TAGS)
 DASHBOARD_ROW_LIMIT = 100
 
+def default_unit_for(mode):
+    """Tournament chip counts only mean something relative to the blind level
+    they were won at - the same 5,000 is a big pot at level 1 and a fold at
+    level 20 - so tournaments read in BB by default. Cash money is already a
+    fixed unit, so it stays in $."""
+    return "bb" if mode == "tournament" else "raw"
+
+
 PRESET_TAG_DESCRIPTIONS = {
     "superb": "Superb — excellent, textbook play",
     "good": "Good — solid, correct decision",
@@ -70,7 +78,7 @@ def dashboard():
 
     unit = request.args.get("unit")
     if unit not in ("raw", "bb"):
-        unit = "raw"
+        unit = default_unit_for(mode)
 
     # The list is capped by default so a big session doesn't render thousands
     # of rows, but the cap has to be visible - otherwise a hand you tagged
@@ -220,9 +228,10 @@ def reports():
         sort = "date"
     order = "asc" if request.args.get("order") == "asc" else "desc"
 
+    default_unit = default_unit_for(mode)
     unit = request.args.get("unit")
     if unit not in ("raw", "bb"):
-        unit = "raw"
+        unit = default_unit
 
     pot_min = _report_float("pot_min")
     pot_max = _report_float("pot_max")
@@ -263,6 +272,7 @@ def reports():
         shown=len(hands),
         summary=summary,
         unit=unit,
+        default_unit=default_unit,
         game_types=db.all_game_types(is_tournament=is_tournament),
         pot_types=db.all_pot_types(is_tournament=is_tournament),
         tags=db.all_tags(is_tournament=is_tournament),

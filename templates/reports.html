@@ -87,7 +87,10 @@
 
   <input type="hidden" name="sort" value="{{ sort }}">
   <input type="hidden" name="order" value="{{ order }}">
-  <input type="hidden" name="unit" value="{{ unit }}">
+  {# Only pin the unit when it's been deliberately switched away from the
+     default for this mode - otherwise changing mode couldn't pick up its
+     own default (tournaments in BB, cash in $). #}
+  {% if unit != default_unit %}<input type="hidden" name="unit" value="{{ unit }}">{% endif %}
   <a href="{{ url_for('reports', unit=unit) }}" class="btn btn-ghost">Clear filters</a>
 </form>
 

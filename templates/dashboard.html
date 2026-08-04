@@ -33,10 +33,12 @@
 
   <div class="tabs-row">
     <div class="mode-tabs">
-      <a href="{{ url_for('dashboard', mode='cash', unit=unit) }}" class="mode-tab {{ 'active' if mode == 'cash' }}">
+      {# No unit on these - switching tab lands on that mode's own default
+         (tournaments in BB, cash in $) rather than carrying the other's. #}
+      <a href="{{ url_for('dashboard', mode='cash') }}" class="mode-tab {{ 'active' if mode == 'cash' }}">
         Cash <span class="count">{{ mode_counts.cash }}</span>
       </a>
-      <a href="{{ url_for('dashboard', mode='tournament', unit=unit) }}" class="mode-tab {{ 'active' if mode == 'tournament' }}">
+      <a href="{{ url_for('dashboard', mode='tournament') }}" class="mode-tab {{ 'active' if mode == 'tournament' }}">
         Tournaments <span class="count">{{ mode_counts.tournament }}</span>
       </a>
     </div>
