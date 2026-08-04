@@ -16,6 +16,16 @@ function fmtAxisNum(v) {
   return v.toFixed(2);
 }
 
+function fmtSigned(v) {
+  return (v >= 0 ? "+" : "") + v.toFixed(2);
+}
+
+function ordinal(n) {
+  const suffixes = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (suffixes[(v - 20) % 10] || suffixes[v] || suffixes[0]);
+}
+
 class LineChart {
   /**
    * container: DOM element to render into.
@@ -23,8 +33,9 @@ class LineChart {
    *   value for every line's `key`.
    * lines: [{key, color, width}] - drawn in array order, so put the line
    *   that should sit on top last.
-   * options: {onPointClick: fn(point, index)} - omit for a non-clickable
-   *   chart (still zoomable).
+   * options: {onPointClick: fn(point, index), tooltipHtml: fn(point, index)}
+   *   - both omittable for a non-clickable, tooltip-less chart (still
+   *   zoomable either way).
    */
   constructor(container, points, lines, options) {
     this.container = container;
@@ -66,9 +77,62 @@ class LineChart {
     this.svg = svg;
     this.container.appendChild(svg);
 
+    const tooltip = document.createElement("div");
+    tooltip.className = "chart-tooltip";
+    tooltip.style.display = "none";
+    this.container.appendChild(tooltip);
+    this.tooltip = tooltip;
+
     svg.addEventListener("mousedown", (e) => this._onMouseDown(e));
+    svg.addEventListener("mousemove", (e) => this._onHover(e));
+    svg.addEventListener("mouseleave", () => this._hideTooltip());
     window.addEventListener("mousemove", (e) => this._onMouseMove(e));
     window.addEventListener("mouseup", (e) => this._onMouseUp(e));
+  }
+
+  _hideTooltip() {
+    this.tooltip.style.display = "none";
+    if (this._hoverGroup) {
+      this._hoverGroup.remove();
+      this._hoverGroup = null;
+    }
+  }
+
+  _onHover(e) {
+    if (this._dragging) return;
+    const p = this._svgPoint(e.clientX, e.clientY);
+    const idx = this._xToIndex(p.x);
+    const point = this.points[idx];
+    if (!point || !this._xOf || !this._yOf) {
+      this._hideTooltip();
+      return;
+    }
+
+    // Vertical guide line + a dot on each series at the hovered index, so
+    // it's visually obvious which point the tooltip is describing.
+    if (this._hoverGroup) this._hoverGroup.remove();
+    const group = svgEl("g", {});
+    const x = this._xOf(idx - this.range[0]);
+    group.appendChild(svgEl("line", {
+      x1: x.toFixed(1), y1: this.padT, x2: x.toFixed(1), y2: this.height - this.padB,
+      stroke: "#8b90a0", "stroke-width": "1", "stroke-dasharray": "3,3",
+    }));
+    for (const line of this.lines) {
+      group.appendChild(svgEl("circle", {
+        cx: x.toFixed(1), cy: this._yOf(point[line.key]).toFixed(1), r: "3", fill: line.color,
+      }));
+    }
+    this.svg.appendChild(group);
+    this._hoverGroup = group;
+
+    if (!this.options.tooltipHtml) return;
+    this.tooltip.innerHTML = this.options.tooltipHtml(point, idx);
+    this.tooltip.style.display = "block";
+    const containerBox = this.container.getBoundingClientRect();
+    let left = e.clientX - containerBox.left + 14;
+    if (left + 190 > containerBox.width) left = e.clientX - containerBox.left - 204;
+    this.tooltip.style.left = `${left}px`;
+    this.tooltip.style.top = `${e.clientY - containerBox.top + 14}px`;
   }
 
   _svgPoint(clientX, clientY) {
@@ -92,6 +156,7 @@ class LineChart {
 
   _onMouseDown(e) {
     if (e.button !== 0) return;
+    this._hideTooltip();
     this._dragStart = this._svgPoint(e.clientX, e.clientY);
     this._dragging = true;
     this._selRect = svgEl("rect", {
@@ -218,6 +283,11 @@ class LineChart {
         d, fill: "none", stroke: line.color, "stroke-width": line.width || 2,
       }));
     }
+
+    // Reused by hover to place the guide line/dots without recomputing scale.
+    this._xOf = (i) => xOf(i);
+    this._yOf = yOf;
+    this._hoverGroup = null;
   }
 }
 

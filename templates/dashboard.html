@@ -68,7 +68,16 @@
         document.getElementById('tourney-graph-container'),
         {{ tourney_points|tojson }},
         [{ key: 'main', color: '#5fae6e', width: 2.5 }],
-        {}
+        {
+          tooltipHtml: function (p, idx) {
+            const cls = p.delta >= 0 ? 'pos' : 'neg';
+            const buyIn = p.buy_in != null ? p.buy_in.toFixed(2) : 'n/a';
+            const place = p.finish_place != null ? ordinal(p.finish_place) : '?';
+            return `<div class="tt-title">#${idx + 1} &middot; ${p.date}</div>
+                    <div class="tt-dim">buy-in ${buyIn} &middot; finished ${place}</div>
+                    <div class="${cls}">${fmtSigned(p.delta)}</div>`;
+          },
+        }
       );
     </script>
     {% else %}<div class="chart-empty">Not enough completed tournaments yet.</div>{% endif %}
@@ -115,6 +124,13 @@
         ],
         {
           onPointClick: function (p) { selectHandFromGraph(p.hand_id, '{{ unit }}'); },
+          tooltipHtml: function (p, idx) {
+            const cls = p.delta >= 0 ? 'pos' : 'neg';
+            const unitSuffix = '{{ " bb" if unit == "bb" else "" }}';
+            return `<div class="tt-title">#${idx + 1} &middot; ${p.date}</div>
+                    <div class="tt-dim">${p.game_type} &middot; ${p.stakes}</div>
+                    <div class="${cls}">${fmtSigned(p.delta)}${unitSuffix}</div>`;
+          },
         }
       );
     </script>

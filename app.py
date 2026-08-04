@@ -109,10 +109,18 @@ def dashboard():
         ev_luck = sum((h["hero_net"] - h["ev_net"]) for h in allin_ev_hands)
 
     # Points for the client-side chart: one per hand, carrying the hand_id so
-    # clicking a point on the graph can look that hand up.
+    # clicking a point looks that hand up, plus a bit of display info for the
+    # hover tooltip so it's clear which hand a given point is before clicking.
     hand_points = [
-        {"hand_id": h["hand_id"], "main": round(main_cum[i], 4), "sd": round(sd_cum[i], 4),
-         "nonsd": round(nonsd_cum[i], 4), "ev": round(ev_cum[i], 4)}
+        {
+            "hand_id": h["hand_id"],
+            "date": h["date_played"][:16] if h["date_played"] else "",
+            "game_type": h["game_type"],
+            "stakes": h["stakes"],
+            "delta": round(hand_values[i], 4),
+            "main": round(main_cum[i], 4), "sd": round(sd_cum[i], 4),
+            "nonsd": round(nonsd_cum[i], 4), "ev": round(ev_cum[i], 4),
+        }
         for i, h in enumerate(series_hands)
     ]
 
@@ -127,9 +135,12 @@ def dashboard():
                 tourney_roi = (tourney_results["net"] or 0) / tourney_results["total_buyin"] * 100
                 tourney_avg_buyin = tourney_results["total_buyin"] / tourney_results["n"]
             completed = [t for t in db.tournament_stats(order="asc") if t["finish_place"] is not None]
-            t_cum = _cumsum([(t["net"] or 0) for t in completed])
+            t_deltas = [(t["net"] or 0) for t in completed]
+            t_cum = _cumsum(t_deltas)
             tourney_points = [
-                {"tournament_id": t["tournament_id"], "main": round(t_cum[i], 4)}
+                {"date": t["date_played"][:16] if t["date_played"] else "",
+                 "buy_in": t["buy_in"], "finish_place": t["finish_place"],
+                 "delta": round(t_deltas[i], 4), "main": round(t_cum[i], 4)}
                 for i, t in enumerate(completed)
             ]
 
