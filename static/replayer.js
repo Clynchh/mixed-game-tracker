@@ -17,9 +17,9 @@ function cardHtml(card, extraClass) {
   return `<span class="pc ${info.cls} ${extraClass || ""}"><b>${shown}</b><i>${info.sym}</i></span>`;
 }
 
-function backHtml(n) {
+function backHtml(n, extraClass) {
   let out = "";
-  for (let i = 0; i < n; i++) out += '<span class="pc pc-back"></span>';
+  for (let i = 0; i < n; i++) out += `<span class="pc pc-back ${extraClass || ""}"></span>`;
   return out;
 }
 
@@ -36,8 +36,20 @@ class HandReplayer {
     this.i = 0;
     this.playing = false;
     this.timer = null;
+    this.unit = "chips";
     this._build();
     this.render();
+  }
+
+  /** Every amount on the table goes through here, so the BB toggle flips
+   *  stacks, bets and the pot together rather than just one of them. */
+  fmt(v) {
+    if (this.unit === "bb" && this.data.big_blind) {
+      const bb = v / this.data.big_blind;
+      if (bb === 0) return "0 bb";
+      return (Math.abs(bb) >= 100 ? bb.toFixed(0) : bb.toFixed(1)) + " bb";
+    }
+    return fmtChips(v);
   }
 
   _build() {
@@ -65,6 +77,11 @@ class HandReplayer {
         <button type="button" data-act="play" title="Play / pause (space)">&#9654; Play</button>
         <button type="button" class="btn-ghost" data-act="next" title="Forward (→)">Next &raquo;</button>
         <button type="button" class="btn-ghost" data-act="last" title="Last (End)">&raquo;&#124;</button>
+        ${this.data.big_blind ? `
+        <div class="unit-toggle replay-unit">
+          <a href="#" class="unit-opt active" data-unit="chips">chips</a>
+          <a href="#" class="unit-opt" data-unit="bb">BB</a>
+        </div>` : ""}
         <span class="replay-status"></span>
       </div>
       <div class="replay-scrub"><input type="range" min="0" max="${this.data.frames.length - 1}" value="0"></div>
@@ -79,6 +96,14 @@ class HandReplayer {
 
     this.root.querySelectorAll("[data-act]").forEach((b) => {
       b.addEventListener("click", () => this.act(b.dataset.act));
+    });
+    this.root.querySelectorAll("[data-unit]").forEach((a) => {
+      a.addEventListener("click", (e) => {
+        e.preventDefault();
+        this.unit = a.dataset.unit;
+        this.root.querySelectorAll("[data-unit]").forEach((o) => o.classList.toggle("active", o === a));
+        this.render();
+      });
     });
     this.scrub.addEventListener("input", () => {
       this.pause();
@@ -128,22 +153,24 @@ class HandReplayer {
   render() {
     const f = this.data.frames[this.i];
     this.boardEl.innerHTML = f.board.map((c) => cardHtml(c)).join("");
-    this.potEl.innerHTML = `<span class="pot-label">Pot</span> <span class="pot-amount">${fmtChips(f.pot)}</span>`;
+    this.potEl.innerHTML = `<span class="pot-label">Pot</span> <span class="pot-amount">${this.fmt(f.pot)}</span>`;
     this.statusEl.textContent = `${this.i + 1} / ${this.data.frames.length} · ${f.street} · ${f.label}`;
     this.scrub.value = this.i;
 
     f.seats.forEach((s, idx) => {
       const el = this.seatEls[idx];
+      const isHero = this.data.seats[idx].is_hero;
+      const size = isHero ? "hero" : "sm";  // your own cards read bigger
       el.classList.toggle("folded", s.folded);
       el.classList.toggle("acting", s.acting);
       el.classList.toggle("winner", s.won > 0);
-      el.querySelector(".seat-stack").textContent = fmtChips(s.stack);
+      el.querySelector(".seat-stack").textContent = this.fmt(s.stack);
       const bet = el.querySelector(".seat-bet");
-      bet.innerHTML = s.bet > 0 ? `<span class="chip-dot"></span>${fmtChips(s.bet)}` : "";
+      bet.innerHTML = s.bet > 0 ? `<span class="chip-dot"></span>${this.fmt(s.bet)}` : "";
       bet.style.visibility = s.bet > 0 ? "visible" : "hidden";
       const before = s.hidden_before || 0;
       el.querySelector(".seat-cards").innerHTML =
-        backHtml(before) + s.cards.map((c) => cardHtml(c, "sm")).join("") + backHtml(s.hidden - before);
+        backHtml(before, size) + s.cards.map((c) => cardHtml(c, size)).join("") + backHtml(s.hidden - before, size);
     });
   }
 }

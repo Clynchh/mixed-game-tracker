@@ -87,11 +87,11 @@ def _seat_positions(n):
     out = []
     for i in range(n):
         angle = math.radians(90 + i * (360.0 / n))
-        out.append((50 + 40 * math.cos(angle), 50 + 34 * math.sin(angle)))
+        out.append((50 + 37 * math.cos(angle), 50 + 32 * math.sin(angle)))
     return out
 
 
-def build_replay(raw_text, game_type, hero_name):
+def build_replay(raw_text, game_type, hero_name, big_blind=None):
     """Returns {seats, frames, ...} or None if the hand can't be replayed."""
     seats_raw = [(int(n), name.strip(), _money(chips)) for n, name, chips in SEAT_LINE_RE.findall(raw_text)]
     if not seats_raw or not hero_name:
@@ -310,6 +310,7 @@ def build_replay(raw_text, game_type, hero_name):
         "game_type": game_type,
         "hero": hero_name,
         "is_stud": is_stud,
+        "big_blind": big_blind,
         "seats": seats,
         "frames": frames,
     }

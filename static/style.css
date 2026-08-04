@@ -555,16 +555,17 @@ pre.raw-hand {
 .replay-table {
   position: relative;
   width: 100%;
+  max-width: 860px;
+  margin: 0 auto 14px;
   aspect-ratio: 16 / 9;
-  min-height: 380px;
-  margin-bottom: 14px;
+  min-height: 360px;
 }
 .felt {
   position: absolute;
-  left: 8%;
-  top: 12%;
-  width: 84%;
-  height: 76%;
+  left: 12%;
+  top: 16%;
+  width: 76%;
+  height: 68%;
   border-radius: 50%;
   background: radial-gradient(ellipse at 50% 40%, #1f5c46 0%, #16412f 70%, #102e22 100%);
   border: 7px solid #3b2a1c;
@@ -578,7 +579,7 @@ pre.raw-hand {
   text-align: center;
   width: 60%;
 }
-.board-cards { display: flex; gap: 4px; justify-content: center; min-height: 46px; }
+.board-cards { display: flex; gap: 4px; justify-content: center; min-height: 50px; }
 .pot-display {
   margin-top: 8px;
   font-family: var(--mono);
@@ -596,7 +597,14 @@ pre.raw-hand {
   transition: opacity 0.15s;
 }
 .seat.folded { opacity: 0.35; }
-.seat-cards { display: flex; gap: 3px; justify-content: center; min-height: 34px; margin-bottom: 3px; }
+.seat-cards {
+  display: flex;
+  gap: 3px;
+  justify-content: center;
+  align-items: flex-end;
+  min-height: 34px;
+  margin-bottom: 3px;
+}
 .seat-plate {
   background: var(--panel-2);
   border: 1px solid var(--border);
@@ -649,25 +657,31 @@ pre.raw-hand {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 42px;
+  width: 34px;
+  height: 48px;
   background: #f4f1e8;
   border-radius: 3px;
   font-family: var(--sans);
   line-height: 1;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
-.pc b { font-size: 15px; font-weight: 700; }
-.pc i { font-size: 13px; font-style: normal; margin-top: 1px; }
+.pc b { font-size: 17px; font-weight: 700; }
+.pc i { font-size: 15px; font-style: normal; margin-top: 1px; }
 .pc.sm { width: 24px; height: 34px; }
 .pc.sm b { font-size: 12px; }
 .pc.sm i { font-size: 10px; }
+/* your own cards sit bigger than everyone else's - they're the ones you're
+   actually reading while stepping through the hand */
+.pc.hero { width: 40px; height: 56px; }
+.pc.hero b { font-size: 20px; }
+.pc.hero i { font-size: 17px; }
 .pc-back {
   width: 24px;
   height: 34px;
   background: repeating-linear-gradient(45deg, #7d2b2b, #7d2b2b 3px, #5e1f1f 3px, #5e1f1f 6px);
   border: 1px solid #4a1919;
 }
+.pc-back.hero { width: 40px; height: 56px; }
 .suit-s { color: #14161b; }
 .suit-h { color: #c0392b; }
 .suit-d { color: #2170b8; }
@@ -680,6 +694,8 @@ pre.raw-hand {
   flex-wrap: wrap;
 }
 .replay-controls button { padding: 5px 12px; font-size: 12px; }
+.replay-unit { margin-bottom: 0; margin-left: 4px; }
+.replay-unit .unit-opt { padding: 3px 10px; font-size: 11px; }
 .replay-status {
   font-family: var(--mono);
   font-size: 12px;

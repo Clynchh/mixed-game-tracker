@@ -290,7 +290,8 @@ def hand_detail(hand_id):
     hand = db.get_hand(hand_id)
     if not hand:
         return "Hand not found", 404
-    replay_data = replay.build_replay(hand["raw_text"], hand["game_type"], hand["hero_name"])
+    replay_data = replay.build_replay(hand["raw_text"], hand["game_type"], hand["hero_name"],
+                                       big_blind=hand["big_blind"])
     return render_template("hand.html", hand=hand, replay_data=replay_data, preset_tags=PRESET_TAGS,
                             preset_colors=PRESET_TAG_COLORS, preset_descriptions=PRESET_TAG_DESCRIPTIONS)
 
