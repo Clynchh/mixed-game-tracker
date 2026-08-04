@@ -300,11 +300,20 @@ class LineChart {
   }
 }
 
+// Clicking a second point before the first one's request has come back
+// must never let the first (now-stale) response land after the second -
+// otherwise the row pinned at the end of a quick double-click can be
+// whichever request happened to resolve last, not whichever was clicked
+// last. Each call gets its own ticket; a response only gets applied if no
+// newer click has happened since it went out.
+let _selectHandRequestId = 0;
+
 function selectHandFromGraph(handId, unit) {
+  const requestId = ++_selectHandRequestId;
   fetch(`/api/hand/${handId}/row?unit=${encodeURIComponent(unit)}`)
     .then((r) => (r.ok ? r.text() : null))
     .then((html) => {
-      if (!html) return;
+      if (!html || requestId !== _selectHandRequestId) return;
       const tbody = document.getElementById("hands-tbody");
       if (!tbody) return;
       const existingPinned = tbody.querySelector(".pinned-row");
