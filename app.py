@@ -8,6 +8,7 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for
 import db
 import replay
 import support_config
+import version
 import watcher
 
 HOST = "127.0.0.1"
@@ -37,6 +38,11 @@ def _cumsum(values):
 
 app = _flask_app()
 db.init_db()
+# An install from before parser versioning existed has no stored value.
+# Adopt the current one rather than assuming it's stale, so nobody is asked
+# to re-import hands that are already up to date.
+if db.get_setting("parser_version") is None:
+    db.mark_parser_version()
 
 DEFAULT_FOLDER = os.environ.get("HAND_HISTORY_DIR", "")
 DEFAULT_USERNAME = os.environ.get("POKERSTARS_USERNAME", "")
@@ -86,8 +92,26 @@ def require_setup():
 @app.context_processor
 def inject_globals():
     """Available to every template - the nav needs to know whether there's a
-    Support page to link to."""
-    return {"support_enabled": support_config.is_enabled()}
+    Support page to link to, and every page can flag a pending re-import."""
+    return {
+        "support_enabled": support_config.is_enabled(),
+        "app_version": version.VERSION,
+        "reimport_needed": db.reimport_needed(),
+    }
+
+
+@app.route("/api/reimport", methods=["POST"])
+def reimport():
+    """Re-read every hand history from scratch. Needed after an update that
+    changes how hands are parsed, because the scanner otherwise skips files
+    it has already seen and the old (wrong) numbers would stick around.
+
+    Hand rows are rewritten in place; tags and notes are stored separately
+    against the hand id, so they come through untouched."""
+    db.clear_file_state()
+    n = watcher.scan_folder(get_folder(), hero_username=get_username())
+    db.mark_parser_version()
+    return jsonify({"new_hands": n, "ok": True})
 
 
 @app.route("/setup")
@@ -450,7 +474,8 @@ def settings():
         db.set_setting("hero_username", username)
         watcher.scan_folder(folder, hero_username=username)  # scan immediately so it's not a 15s wait
         return redirect(url_for("dashboard"))
-    return render_template("settings.html", folder=get_folder(), username=get_username())
+    return render_template("settings.html", folder=get_folder(), username=get_username(),
+                            db_path=db.DB_PATH)
 
 
 @app.route("/api/scan-status")

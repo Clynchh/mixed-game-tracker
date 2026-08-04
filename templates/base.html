@@ -24,6 +24,15 @@
     {% endblock %}
   </header>
   <main>
+    {% if reimport_needed %}
+    <div class="update-banner">
+      <div>
+        <strong>This update improves how hands are read.</strong>
+        Hands imported before it still show the old figures until they're re-read.
+      </div>
+      <a href="/settings" class="btn">Re-read now</a>
+    </div>
+    {% endif %}
     {% block content %}{% endblock %}
   </main>
   <script>

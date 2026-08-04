@@ -27,4 +27,39 @@
 
   <button type="submit">Save &amp; scan</button>
 </form>
+
+<div class="settings-section">
+  <h3 class="settings-h3">Re-read every hand</h3>
+  <p class="help" style="margin-top:0;">
+    Normally the app skips hand history files it has already read, which keeps
+    scanning fast. After an update that improves how hands are read, use this
+    to go back over every file so hands imported earlier pick up the fix.
+    Your tags and notes are kept &mdash; only the hand details are refreshed.
+  </p>
+  <button type="button" class="btn-ghost" id="reimport-btn" onclick="reimportAll()">Re-read all hand histories</button>
+  <span id="reimport-status" class="help" style="margin-left:10px;"></span>
+</div>
+
+<div class="settings-section">
+  <h3 class="settings-h3">About</h3>
+  <p class="help" style="margin-top:0;">
+    Version {{ app_version }}<br>
+    Your data: <code>{{ db_path }}</code><br>
+    Updating replaces the app only &mdash; your hands live in that file and are
+    left alone. It's worth copying somewhere safe now and then.
+  </p>
+</div>
+
+<script>
+  function reimportAll() {
+    const btn = document.getElementById('reimport-btn');
+    const status = document.getElementById('reimport-status');
+    btn.disabled = true;
+    status.textContent = 'Reading… this can take a minute for a lot of hands.';
+    fetch('/api/reimport', {method: 'POST'})
+      .then((r) => r.json())
+      .then(() => { status.textContent = 'Done.'; setTimeout(() => location.reload(), 700); })
+      .catch(() => { status.textContent = 'Something went wrong.'; btn.disabled = false; });
+  }
+</script>
 {% endblock %}

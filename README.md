@@ -55,6 +55,28 @@ writes there.
 Your data stays on your own machine. There's no account, no upload, and the
 app makes no network requests at all.
 
+## Updating
+
+Download the new `MixedGamesTracker.exe` and replace the old one. That's it —
+your hands aren't in the app, they're in a database in your own user folder
+(Settings shows you exactly where), so replacing the app never touches them.
+
+Two things happen by themselves when you open a newer version:
+
+- **New features that need new data** are added to your existing database in
+  place, keeping every hand. A copy of the database is saved alongside it as
+  `tracker.db.bak` first, just in case.
+- **If an update improves how hands are read**, a banner appears offering to
+  re-read your hand history files, so hands you imported before the update
+  pick up the fix too. Without it they'd quietly keep the old figures,
+  because the scanner normally skips files it has already seen. Your tags
+  and notes are kept — only the hand details get refreshed. You can also
+  trigger this any time from Settings.
+
+Worth copying that database file somewhere safe now and then. It's the only
+thing that can't be re-downloaded — though since it's rebuilt from your
+PokerStars hand history files, even losing it only costs you your tags.
+
 ## Building a release (maintainer notes)
 
 ```bash
@@ -69,6 +91,13 @@ gitignored rather than committed, since binaries don't belong in the repo.
 
 PyInstaller can't cross-compile: build the Windows executable on Windows,
 the macOS one on macOS.
+
+Bump `VERSION` in `version.py` for each release. If a release changes how
+hands are *parsed* — a fix to the money maths, hero detection, blind sizes —
+also bump `PARSER_VERSION`. That's what makes existing users get the
+"re-read your hands" prompt; without it the fix would only apply to hands
+imported after they updated, and their older hands would silently keep the
+wrong numbers.
 
 A packaged build stores its database under the user's own data folder
 (`%LOCALAPPDATA%\MixedGamesTracker` on Windows) rather than beside the

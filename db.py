@@ -4,9 +4,12 @@ Everything lives in one SQLite file so the whole tool is portable.
 """
 import sqlite3
 import os
+import shutil
 import sys
 import json
 from contextlib import contextmanager
+
+import version
 
 
 def _default_db_path():
@@ -119,26 +122,69 @@ def get_conn():
         conn.close()
 
 
-def _migrate(conn):
-    cols = [r["name"] for r in conn.execute("PRAGMA table_info(hands)").fetchall()]
-    if "big_blind" not in cols:
-        conn.execute("ALTER TABLE hands ADD COLUMN big_blind REAL")
-    if "pot_type" not in cols:
-        conn.execute("ALTER TABLE hands ADD COLUMN pot_type TEXT")
-    if "went_to_showdown" not in cols:
-        conn.execute("ALTER TABLE hands ADD COLUMN went_to_showdown INTEGER")
-    if "is_allin_ev" not in cols:
-        conn.execute("ALTER TABLE hands ADD COLUMN is_allin_ev INTEGER")
-        conn.execute("ALTER TABLE hands ADD COLUMN equity_pct REAL")
-        conn.execute("ALTER TABLE hands ADD COLUMN ev_net REAL")
-    if "vpip" not in cols:
-        conn.execute("ALTER TABLE hands ADD COLUMN vpip INTEGER")
+# Columns added after the first release. Existing databases get them added
+# in place on startup, so updating never means starting over.
+_ADDED_COLUMNS = [
+    ("big_blind", "REAL"),
+    ("pot_type", "TEXT"),
+    ("went_to_showdown", "INTEGER"),
+    ("is_allin_ev", "INTEGER"),
+    ("equity_pct", "REAL"),
+    ("ev_net", "REAL"),
+    ("vpip", "INTEGER"),
+]
+
+
+def _pending_migrations(conn):
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(hands)").fetchall()}
+    return [(name, sql_type) for name, sql_type in _ADDED_COLUMNS if name not in cols]
+
+
+def _backup_database():
+    """Copied before the first schema change of an update. Cheap insurance:
+    if a migration ever goes wrong, the hands are still sitting right next
+    to the database in a .bak file."""
+    if not os.path.exists(DB_PATH):
+        return
+    try:
+        shutil.copy2(DB_PATH, DB_PATH + ".bak")
+    except OSError:
+        pass  # a failed backup shouldn't stop the app opening
 
 
 def init_db():
     with get_conn() as conn:
         conn.executescript(SCHEMA)
-        _migrate(conn)
+        pending = _pending_migrations(conn)
+        if pending:
+            _backup_database()
+            for name, sql_type in pending:
+                conn.execute(f"ALTER TABLE hands ADD COLUMN {name} {sql_type}")
+
+
+def reimport_needed():
+    """True when this build parses hands differently from whatever imported
+    the ones already stored, so the existing rows are out of date."""
+    stored = get_setting("parser_version")
+    if stored is None:
+        return False  # nothing imported yet, or a database from before this was tracked
+    try:
+        return int(stored) < version.PARSER_VERSION
+    except ValueError:
+        return False
+
+
+def mark_parser_version():
+    set_setting("parser_version", str(version.PARSER_VERSION))
+    set_setting("app_version", version.VERSION)
+
+
+def clear_file_state():
+    """Forget which files have already been read, so the next scan re-parses
+    everything from scratch. Hand rows get rewritten in place - tags and
+    notes live in their own table keyed by hand id, so they survive."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM file_state")
 
 
 def upsert_hand(hand: dict) -> bool:
