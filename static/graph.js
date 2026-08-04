@@ -162,6 +162,11 @@ class LineChart {
     if (e.button !== 0) return;
     this._hideTooltip();
     this._dragStart = this._svgPoint(e.clientX, e.clientY);
+    // Cleared here, not just left over from whatever the last interaction
+    // did - otherwise a click with zero jitter right after a drag-zoom
+    // measures its distance against the previous drag's endpoint instead
+    // of this click, and can get misread as a (usually no-op) zoom attempt.
+    this._dragCurrent = null;
     this._dragging = true;
     this._selRect = svgEl("rect", {
       x: this._dragStart.x, y: this.padT, width: 0,

@@ -131,18 +131,20 @@
           tooltipHtml: function (p, idx) {
             const cls = p.delta >= 0 ? 'pos' : 'neg';
             const unitSuffix = '{{ " bb" if unit == "bb" else "" }}';
-            const row = (color, label, val) => {
-              const shown = val == null ? '<span class="tt-dim">n/a</span>' : `<span class="tt-val">${fmtSigned(val)}${unitSuffix}</span>`;
-              return `<div class="tt-row"><i style="background:${color}"></i><span class="tt-label">${label}</span>${shown}</div>`;
-            };
+            const row = (color, label, val) =>
+              `<div class="tt-row"><i style="background:${color}"></i><span class="tt-label">${label}</span><span class="tt-val">${fmtSigned(val)}${unitSuffix}</span></div>`;
+            // Only show a line if it actually applies to this hand - an
+            // all-in EV row on a hand with no all-in is just noise, and a
+            // hand can only ever be one of showdown / no-showdown, not both.
+            let rows = '';
+            if (p.is_allin_ev) rows += row('#d9b23a', 'all-in EV-adj', p.ev_delta);
+            rows += p.went_to_showdown
+              ? row('#4a90d9', 'with showdown', p.delta)
+              : row('#c0564f', 'without showdown', p.delta);
             return `<div class="tt-title">#${idx + 1} &middot; ${p.date}</div>
                     <div class="tt-dim">${p.game_type} &middot; ${p.stakes}</div>
                     <div class="${cls}">this hand ${fmtSigned(p.delta)}${unitSuffix}</div>
-                    <div class="tt-rows">
-                      ${row('#d9b23a', 'all-in EV-adj', p.ev_delta)}
-                      ${row('#4a90d9', 'with showdown', p.went_to_showdown ? p.delta : null)}
-                      ${row('#c0564f', 'without showdown', p.went_to_showdown ? null : p.delta)}
-                    </div>`;
+                    <div class="tt-rows">${rows}</div>`;
           },
         }
       );

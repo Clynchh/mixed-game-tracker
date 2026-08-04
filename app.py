@@ -252,6 +252,7 @@ def dashboard():
             "stakes": h["stakes"],
             "delta": round(hand_values[i], 4),
             "ev_delta": round(ev_values[i], 4),
+            "is_allin_ev": bool(h["is_allin_ev"]),
             "went_to_showdown": bool(h["went_to_showdown"]),
             "main": round(main_cum[i], 4), "sd": round(sd_cum[i], 4),
             "nonsd": round(nonsd_cum[i], 4), "ev": round(ev_cum[i], 4),
