@@ -133,18 +133,31 @@
             const unitSuffix = '{{ " bb" if unit == "bb" else "" }}';
             const row = (color, label, val) =>
               `<div class="tt-row"><i style="background:${color}"></i><span class="tt-label">${label}</span><span class="tt-val">${fmtSigned(val)}${unitSuffix}</span></div>`;
-            // Only show a line if it actually applies to this hand - an
-            // all-in EV row on a hand with no all-in is just noise, and a
-            // hand can only ever be one of showdown / no-showdown, not both.
-            let rows = '';
-            if (p.is_allin_ev) rows += row('#d9b23a', 'all-in EV-adj', p.ev_delta);
-            rows += p.went_to_showdown
+
+            // Running total: where each of the 4 lines actually is at this
+            // point in the graph.
+            const totalRows =
+              row('#5fae6e', 'total', p.main) +
+              row('#d9b23a', 'all-in EV-adj', p.ev) +
+              row('#4a90d9', 'with showdown', p.sd) +
+              row('#c0564f', 'without showdown', p.nonsd);
+
+            // This hand alone - only show a line if it actually applies to
+            // this hand. An all-in EV row on a hand with no all-in is just
+            // noise, and a hand can only ever be one of showdown /
+            // no-showdown, not both.
+            let handRows = '';
+            if (p.is_allin_ev) handRows += row('#d9b23a', 'all-in EV-adj', p.ev_delta);
+            handRows += p.went_to_showdown
               ? row('#4a90d9', 'with showdown', p.delta)
               : row('#c0564f', 'without showdown', p.delta);
+
             return `<div class="tt-title">#${idx + 1} &middot; ${p.date}</div>
                     <div class="tt-dim">${p.game_type} &middot; ${p.stakes}</div>
-                    <div class="${cls}">this hand ${fmtSigned(p.delta)}${unitSuffix}</div>
-                    <div class="tt-rows">${rows}</div>`;
+                    <div class="tt-section-label">running total</div>
+                    <div class="tt-rows">${totalRows}</div>
+                    <div class="tt-section-label">this hand <span class="${cls}">${fmtSigned(p.delta)}${unitSuffix}</span></div>
+                    <div class="tt-rows">${handRows}</div>`;
           },
         }
       );

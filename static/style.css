@@ -176,10 +176,19 @@ main { padding: 24px 28px 60px; max-width: 1180px; margin: 0 auto; }
 }
 .chart-tooltip .tt-dim { color: var(--text-dim); }
 .chart-tooltip .tt-title { font-family: var(--sans); font-weight: 600; margin-bottom: 2px; }
-.chart-tooltip .tt-rows {
-  margin-top: 5px;
+.chart-tooltip .tt-section-label {
+  margin-top: 6px;
   padding-top: 5px;
   border-top: 1px solid var(--border);
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+.chart-tooltip .tt-rows {
+  margin-top: 2px;
   display: flex;
   flex-direction: column;
   gap: 2px;
