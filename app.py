@@ -78,6 +78,24 @@ def is_configured():
 
 
 @app.before_request
+def require_same_origin():
+    """This server has no login and no secret key, but its POST routes still
+    change local state (settings, tags, which folder gets scanned) - and a
+    plain HTTP server has no built-in defense against a completely unrelated
+    website, open in another tab in the same browser while this is running,
+    silently POSTing to http://127.0.0.1:<port> in the background. Browsers
+    always attach Origin (or, failing that, Referer) to a cross-origin POST,
+    so rejecting anything whose Origin doesn't match this app's own origin
+    closes that off without affecting normal use of the app itself."""
+    if request.method == "GET" or request.endpoint == "static":
+        return None
+    origin = request.headers.get("Origin") or request.headers.get("Referer")
+    if origin and not origin.startswith(f"http://{HOST}:{PORT}"):
+        return "Forbidden", 403
+    return None
+
+
+@app.before_request
 def require_setup():
     """Send a fresh install to the welcome screen rather than an empty
     dashboard that silently reports nothing."""

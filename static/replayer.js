@@ -9,12 +9,25 @@ const SUIT_INFO = {
   c: { sym: "♣", cls: "suit-c" },
 };
 
+// Prefixed (rather than named e.g. escapeHtml/HTML_ESCAPES) because this
+// file is meant to drop into other pages/projects standalone - a generic
+// top-level name would silently collide with a same-named const/function
+// on whatever page it's embedded into.
+const _REPLAYER_HTML_ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+// Card ranks and player names both come straight out of a hand-history
+// text file - which is just a .txt file someone could hand-craft and
+// share - so anything from `data` that lands in an innerHTML template
+// literal below has to be escaped first, same as any other untrusted text.
+function _replayerEscapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => _REPLAYER_HTML_ESCAPES[c]);
+}
+
 function cardHtml(card, extraClass) {
   const rank = card.slice(0, -1);
   const suit = card.slice(-1).toLowerCase();
   const info = SUIT_INFO[suit] || { sym: "?", cls: "" };
   const shown = rank === "T" ? "10" : rank;
-  return `<span class="pc ${info.cls} ${extraClass || ""}"><b>${shown}</b><i>${info.sym}</i></span>`;
+  return `<span class="pc ${info.cls} ${extraClass || ""}"><b>${_replayerEscapeHtml(shown)}</b><i>${info.sym}</i></span>`;
 }
 
 function backHtml(n, extraClass) {
@@ -76,7 +89,7 @@ class HandReplayer {
             <div class="seat-bet"></div>
             <div class="seat-cards"></div>
             <div class="seat-plate">
-              <div class="seat-name">${s.name}${s.is_hero ? ' <span class="you-badge">you</span>' : ""}${s.is_button ? ' <span class="btn-chip">D</span>' : ""}</div>
+              <div class="seat-name">${_replayerEscapeHtml(s.name)}${s.is_hero ? ' <span class="you-badge">you</span>' : ""}${s.is_button ? ' <span class="btn-chip">D</span>' : ""}</div>
               <div class="seat-stack"></div>
             </div>
           </div>`).join("")}

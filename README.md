@@ -77,6 +77,18 @@ Worth copying that database file somewhere safe now and then. It's the only
 thing that can't be re-downloaded — though since it's rebuilt from your
 PokerStars hand history files, even losing it only costs you your tags.
 
+## Running the tests (maintainer notes)
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Runs entirely against a throwaway temp database (never `tracker.db`) and the
+bundled `sample_hands/session1.txt`. Covers hand parsing, the replayer's
+chip-conservation invariant, the hand evaluator, migrations, and the Flask
+routes — including the same-origin check on every state-changing endpoint.
+
 ## Building a release (maintainer notes)
 
 ```bash

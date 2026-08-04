@@ -15,12 +15,12 @@ Villain2: calls 60
 Corey88: bets 120
 Villain2: folds
 Uncalled bet (120) returned to Corey88
-Corey88 collected 220 from pot
+Corey88 collected 210 from pot
 *** SUMMARY ***
-Total pot 220 | Rake 0
+Total pot 210 | Rake 0
 Board [2h 7c Jd]
 Seat 1: Villain1 (small blind) folded before Flop
-Seat 2: Corey88 (big blind) collected (220)
+Seat 2: Corey88 (big blind) collected (210)
 Seat 3: Villain2 (button) folded on the Flop
 
 PokerStars Hand #223344552: Tournament #1234567, $10+$1 USD Omaha Hi/Lo Limit - Level II (20/40) - 2026/07/20 20:05:00 ET
@@ -53,13 +53,13 @@ Villain2: calls 40
 *** SHOW DOWN ***
 Villain1: shows [Kh Kd 2s 3s] (a pair of Kings)
 Villain2: shows [7h 8h 6c 5d] (a straight)
-Villain2 collected 380 from pot
+Villain2 collected 340 from pot
 *** SUMMARY ***
-Total pot 380 | Rake 0
+Total pot 340 | Rake 0
 Board [2h 5c Jd 9s 4d]
 Seat 1: Villain1 (button) showed [Kh Kd 2s 3s] and lost
 Seat 2: Corey88 (small blind) folded on the Turn
-Seat 3: Villain2 (big blind) showed [7h 8h 6c 5d] and won (380)
+Seat 3: Villain2 (big blind) showed [7h 8h 6c 5d] and won (340)
 
 PokerStars Hand #223344553: Tournament #1234567, $10+$1 USD Razz Limit - Level III (30/60) - 2026/07/20 20:10:00 ET
 Table '1234567 1' 6-max
@@ -84,12 +84,12 @@ Villain2: calls 30
 Dealt to Corey88 [7c 2d 4h Kd] [9s]
 Villain2: bets 60
 Corey88: folds
-Villain2 collected 190 from pot
+Villain2 collected 195 from pot
 *** SUMMARY ***
-Total pot 190 | Rake 0
+Total pot 195 | Rake 0
 Seat 1: Villain1 folded on the 3rd Street
 Seat 2: Corey88 folded on the 5th Street
-Seat 3: Villain2 collected (190)
+Seat 3: Villain2 collected (195)
 
 PokerStars Hand #223344554: Tournament #1234567, $10+$1 USD 7 Card Stud Limit - Level IV (40/80) - 2026/07/20 20:15:00 ET
 Table '1234567 1' 6-max
@@ -115,11 +115,11 @@ Dealt to Corey88 [Ah Ad 9c 4h] [2s]
 Villain1: checks
 Corey88: bets 80
 Villain1: folds
-Corey88 collected 300 from pot
+Corey88 collected 255 from pot
 *** SUMMARY ***
-Total pot 300 | Rake 0
+Total pot 255 | Rake 0
 Seat 1: Villain1 folded on the 5th Street
-Seat 2: Corey88 collected (300)
+Seat 2: Corey88 collected (255)
 Seat 3: Villain2 folded on the 3rd Street
 
 PokerStars Hand #223344555: Tournament #1234567, $10+$1 USD 7 Card Stud Hi/Lo Limit - Level V (60/120) - 2026/07/20 20:20:00 ET
@@ -157,12 +157,12 @@ Corey88: calls 120
 *** SHOW DOWN ***
 Corey88: shows [2h 3d 5c 7h 9d Jc Kh] (a pair of Kings)
 Villain1: shows [Ah 4h 6d 8c Tc Qs 9c] (a straight)
-Villain1 collected 560 from pot
-Corey88 collected 280 from pot
+Villain1 collected 700 from pot
+Corey88 collected 350 from pot
 *** SUMMARY ***
-Total pot 840 | Rake 0
-Seat 1: Villain1 showed and won (560)
-Seat 2: Corey88 showed and won (280)
+Total pot 1050 | Rake 0
+Seat 1: Villain1 showed and won (700)
+Seat 2: Corey88 showed and won (350)
 Seat 3: Villain2 folded on the 4th Street
 
 PokerStars Hand #223344556: Tournament #1234567, $10+$1 USD 2-7 Triple Draw Limit - Level VI (80/160) - 2026/07/20 20:25:00 ET
@@ -196,11 +196,11 @@ Villain1: checks
 Corey88: bets 160
 Villain1: folds
 Uncalled bet (160) returned to Corey88
-Corey88 collected 900 from pot
+Corey88 collected 840 from pot
 *** SUMMARY ***
-Total pot 900 | Rake 0
+Total pot 840 | Rake 0
 Seat 1: Villain1 (big blind) folded on the Third Draw
-Seat 2: Corey88 (button) collected (900)
+Seat 2: Corey88 (button) collected (840)
 Seat 3: Villain2 (small blind) folded before Draw
 
 PokerStars Hand #223344557: 2-7 Single Draw No Limit ($1.00/$2.00) - 2026/07/22 21:00:00 ET
@@ -224,9 +224,9 @@ Villain1: calls $9.00
 *** SHOW DOWN ***
 Corey88: shows [3c 4d 5h 7s 9c] (9-7-5-4-3)
 Villain1: shows [2h 6d 8c Th Jd] (J-T-8-6-2)
-Corey88 collected $30.00 from pot
+Corey88 collected $31.00 from pot
 *** SUMMARY ***
-Total pot $30.00 | Rake $0.00
+Total pot $31.00 | Rake $0.00
 Seat 1: Villain1 (big blind) showed and lost
-Seat 2: Corey88 showed and won ($30.00)
+Seat 2: Corey88 showed and won ($31.00)
 Seat 3: Villain2 (small blind) folded before Draw

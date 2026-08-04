@@ -26,6 +26,16 @@ function ordinal(n) {
   return n + (suffixes[(v - 20) % 10] || suffixes[v] || suffixes[0]);
 }
 
+const HTML_ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+// Points on this chart carry fields parsed straight out of a hand-history
+// text file (stakes, game type) - a hand history is just a .txt file
+// someone could hand-craft and share, so tooltipHtml callbacks that build
+// HTML strings from point data must escape it before it goes into
+// innerHTML, the same as any other untrusted text.
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
+}
+
 class LineChart {
   /**
    * container: DOM element to render into.

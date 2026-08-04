@@ -77,7 +77,7 @@
             const cls = p.delta >= 0 ? 'pos' : 'neg';
             const buyIn = p.buy_in != null ? p.buy_in.toFixed(2) : 'n/a';
             const place = p.finish_place != null ? ordinal(p.finish_place) : '?';
-            return `<div class="tt-title">#${idx + 1} &middot; ${p.date}</div>
+            return `<div class="tt-title">#${idx + 1} &middot; ${escapeHtml(p.date)}</div>
                     <div class="tt-dim">buy-in ${buyIn} &middot; finished ${place}</div>
                     <div class="${cls}">${fmtSigned(p.delta)}</div>`;
           },
@@ -152,8 +152,8 @@
               ? row('#4a90d9', 'with showdown', p.delta)
               : row('#c0564f', 'without showdown', p.delta);
 
-            return `<div class="tt-title">#${idx + 1} &middot; ${p.date}</div>
-                    <div class="tt-dim">${p.game_type} &middot; ${p.stakes}</div>
+            return `<div class="tt-title">#${idx + 1} &middot; ${escapeHtml(p.date)}</div>
+                    <div class="tt-dim">${escapeHtml(p.game_type)} &middot; ${escapeHtml(p.stakes)}</div>
                     <div class="tt-section-label">running total</div>
                     <div class="tt-rows">${totalRows}</div>
                     <div class="tt-section-label">this hand <span class="${cls}">${fmtSigned(p.delta)}${unitSuffix}</span></div>
