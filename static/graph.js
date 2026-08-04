@@ -43,7 +43,11 @@ class LineChart {
     this.lines = lines;
     this.options = options || {};
     this.width = 900;
-    this.height = this.options.height || 200;
+    // Kept in step with .line-chart's CSS height (they scale together at
+    // 2.5x the original 900x200 / 180px). The SVG uses
+    // preserveAspectRatio="none", so raising only one of the two would
+    // stretch the axis labels rather than just make the plot taller.
+    this.height = this.options.height || 500;
     this.padL = 48;
     this.padR = 12;
     this.padT = 10;

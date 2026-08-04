@@ -116,7 +116,9 @@ main { padding: 24px 28px 60px; max-width: 1180px; margin: 0 auto; }
 .chart-sub { font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
 .chart-empty { padding: 40px 0; text-align: center; color: var(--text-dim); font-size: 13px; }
 .chart-container { position: relative; }
-.line-chart { width: 100%; height: 180px; display: block; cursor: crosshair; user-select: none; }
+/* Height is paired with LineChart's viewBox height in graph.js - change both
+   together or the axis text stretches. */
+.line-chart { width: 100%; height: 450px; display: block; cursor: crosshair; user-select: none; }
 .chart-axis-label { fill: var(--text-dim); font-family: var(--mono); }
 .chart-zero-label { fill: var(--text); font-weight: 700; }
 .chart-select-box { fill: var(--gold); fill-opacity: 0.12; stroke: var(--gold-dim); stroke-width: 1; }
