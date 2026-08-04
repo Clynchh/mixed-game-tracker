@@ -130,7 +130,7 @@ def dashboard():
     hand_points = [
         {
             "hand_id": h["hand_id"],
-            "date": h["date_played"][:16] if h["date_played"] else "",
+            "date": h["date_played"][:16].replace("T", " ") if h["date_played"] else "",
             "game_type": h["game_type"],
             "stakes": h["stakes"],
             "delta": round(hand_values[i], 4),
@@ -154,7 +154,7 @@ def dashboard():
             t_deltas = [(t["net"] or 0) for t in completed]
             t_cum = _cumsum(t_deltas)
             tourney_points = [
-                {"date": t["date_played"][:16] if t["date_played"] else "",
+                {"date": t["date_played"][:16].replace("T", " ") if t["date_played"] else "",
                  "buy_in": t["buy_in"], "finish_place": t["finish_place"],
                  "delta": round(t_deltas[i], 4), "main": round(t_cum[i], 4)}
                 for i, t in enumerate(completed)

@@ -119,7 +119,7 @@
     {% set row_net = (h.hero_net / h.big_blind) if (unit == 'bb' and h.big_blind) else h.hero_net %}
     {% set row_pot = (h.pot_total / h.big_blind) if (unit == 'bb' and h.big_blind and h.pot_total is not none) else h.pot_total %}
     <tr onclick="window.location='{{ url_for('hand_detail', hand_id=h.hand_id) }}'" style="cursor:pointer">
-      <td>{{ h.date_played[:16] if h.date_played else '' }}</td>
+      <td>{{ h.date_played[:16].replace('T', ' ') if h.date_played else '' }}</td>
       <td class="game">{{ h.game_type }} <span class="pill">{{ h.limit_type }}</span></td>
       <td>{{ h.stakes }}</td>
       <td><span class="pill">{{ h.pot_type }}</span></td>

@@ -10,11 +10,18 @@
   --win:       #5fae6e;
   --loss:      #c0564f;
   --radius:    6px;
-  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, "Liberation Mono", monospace;
   /* System UI stack - no webfont request, since the app never touches the
      network. Segoe UI Variable is the modern Windows UI face and sits first. */
   --sans: "Segoe UI Variable Text", "Segoe UI", ui-sans-serif, -apple-system,
           BlinkMacSystemFont, Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Figures use the same sans face, paired everywhere with
+     font-variant-numeric: tabular-nums so digits stay the same width and
+     columns of numbers still line up - no need for a monospace face just to
+     get aligned decimals. */
+  --num: var(--sans);
+  /* Real monospace is kept only for the raw hand-history dump and file
+     paths, where the original character alignment is the point. */
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, "Liberation Mono", monospace;
 }
 
 * { box-sizing: border-box; }
@@ -116,8 +123,8 @@ main { padding: 24px 28px 60px; max-width: 1180px; margin: 0 auto; }
   border-radius: 4px;
 }
 .unit-opt:hover { color: var(--text); text-decoration: none; }
-.unit-opt.active { background: var(--gold-dim); color: #14161b; }
-.unit-opt.active:hover { color: #14161b; }
+.unit-opt.active { background: var(--gold-dim); color: #0f1115; }
+.unit-opt.active:hover { color: #0f1115; }
 
 .tourney-banner { border-color: var(--gold-dim); margin-bottom: 12px; }
 
@@ -135,13 +142,13 @@ main { padding: 24px 28px 60px; max-width: 1180px; margin: 0 auto; }
   margin-bottom: 8px;
 }
 .chart-title { font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
-.chart-sub { font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
+.chart-sub { font-size: 11px; color: var(--text-dim); font-family: var(--num); font-variant-numeric: tabular-nums; }
 .chart-empty { padding: 40px 0; text-align: center; color: var(--text-dim); font-size: 13px; }
 .chart-container { position: relative; }
 /* Height is paired with LineChart's viewBox height in graph.js - change both
    together or the axis text stretches. */
 .line-chart { width: 100%; height: 450px; display: block; cursor: crosshair; user-select: none; }
-.chart-axis-label { fill: var(--text-dim); font-family: var(--mono); }
+.chart-axis-label { fill: var(--text-dim); font-family: var(--num); font-variant-numeric: tabular-nums; }
 .chart-zero-label { fill: var(--text); font-weight: 700; }
 .chart-select-box { fill: var(--gold); fill-opacity: 0.12; stroke: var(--gold-dim); stroke-width: 1; }
 .chart-reset-zoom {
@@ -160,7 +167,8 @@ main { padding: 24px 28px 60px; max-width: 1180px; margin: 0 auto; }
   border: 1px solid var(--border);
   border-radius: 5px;
   padding: 7px 10px;
-  font-family: var(--mono);
+  font-family: var(--num);
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
   line-height: 1.5;
   min-width: 150px;
@@ -188,7 +196,8 @@ main { padding: 24px 28px 60px; max-width: 1180px; margin: 0 auto; }
 .mode-tab:hover { color: var(--text); text-decoration: none; }
 .mode-tab.active { color: var(--gold); border-bottom-color: var(--gold); }
 .mode-tab .count {
-  font-family: var(--mono);
+  font-family: var(--num);
+  font-variant-numeric: tabular-nums;
   font-size: 11px;
   color: var(--text-dim);
   margin-left: 4px;
@@ -220,12 +229,14 @@ main { padding: 24px 28px 60px; max-width: 1180px; margin: 0 auto; }
   margin-bottom: 6px;
 }
 .stat-card .value {
-  font-family: var(--mono);
+  font-family: var(--num);
+  font-variant-numeric: tabular-nums;
   font-size: 20px;
   font-weight: 600;
 }
 .stat-card .sub {
-  font-family: var(--mono);
+  font-family: var(--num);
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
   color: var(--text-dim);
   margin-top: 2px;
@@ -242,7 +253,8 @@ main { padding: 24px 28px 60px; max-width: 1180px; margin: 0 auto; }
   border-radius: 6px;
   padding: 14px 18px;
   margin-bottom: 22px;
-  font-family: var(--mono);
+  font-family: var(--num);
+  font-variant-numeric: tabular-nums;
 }
 .overall-banner .big { font-size: 23px; font-weight: 600; letter-spacing: -0.02em; }
 .overall-banner .lbl {
@@ -304,7 +316,7 @@ input[type=number]::-webkit-outer-spin-button {
   letter-spacing: 0.05em;
   margin-bottom: 6px;
 }
-.rs-value { font-family: var(--mono); text-transform: none; letter-spacing: normal; color: var(--text); }
+.rs-value { font-family: var(--num); font-variant-numeric: tabular-nums; text-transform: none; letter-spacing: normal; color: var(--text); }
 .rs-track-wrap { position: relative; height: 16px; }
 .rs-track {
   position: absolute;
@@ -406,7 +418,8 @@ table.hands th {
 table.hands td {
   padding: 9px 12px;
   border-bottom: 1px solid var(--border);
-  font-family: var(--mono);
+  font-family: var(--num);
+  font-variant-numeric: tabular-nums;
   font-size: 12.5px;
 }
 table.hands tr:last-child td { border-bottom: none; }
@@ -491,7 +504,8 @@ table.hands tr:hover .tag-dots { opacity: 1; }
   margin-bottom: 16px;
   padding-bottom: 16px;
   border-bottom: 1px solid var(--border);
-  font-family: var(--mono);
+  font-family: var(--num);
+  font-variant-numeric: tabular-nums;
   font-size: 13px;
 }
 .hand-meta .k { color: var(--text-dim); margin-right: 6px; }
@@ -532,7 +546,7 @@ pre.raw-hand {
   cursor: pointer;
 }
 .quick-tag-btn:hover { background: color-mix(in srgb, var(--dot-color, var(--text-dim)) 15%, transparent); }
-.quick-tag-btn.active { background: var(--dot-color, var(--gold-dim)); color: #14161b; }
+.quick-tag-btn.active { background: var(--dot-color, var(--gold-dim)); color: #0f1115; }
 
 .tag-form {
   display: flex;
@@ -563,7 +577,7 @@ pre.raw-hand {
 }
 .tag-item button.remove:hover { color: var(--loss); background: none; }
 
-.back-link { display: inline-block; margin-bottom: 14px; font-family: var(--mono); font-size: 13px; }
+.back-link { display: inline-block; margin-bottom: 14px; font-size: 13px; }
 
 .settings-form label {
   display: block;
@@ -630,7 +644,8 @@ pre.raw-hand {
 .board-cards { display: flex; gap: 4px; justify-content: center; min-height: 50px; }
 .pot-display {
   margin-top: 8px;
-  font-family: var(--mono);
+  font-family: var(--num);
+  font-variant-numeric: tabular-nums;
   font-size: 13px;
   color: var(--text);
 }
@@ -669,7 +684,7 @@ pre.raw-hand {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.seat-stack { font-family: var(--mono); font-size: 12px; color: var(--gold); }
+.seat-stack { font-family: var(--num); font-variant-numeric: tabular-nums; font-size: 12px; color: var(--gold); }
 .btn-chip {
   display: inline-block;
   width: 14px;
@@ -695,7 +710,8 @@ pre.raw-hand {
   vertical-align: middle;
 }
 .seat-bet {
-  font-family: var(--mono);
+  font-family: var(--num);
+  font-variant-numeric: tabular-nums;
   font-size: 11px;
   color: var(--text);
   margin-bottom: 2px;
@@ -781,7 +797,8 @@ pre.raw-hand {
 .replay-unit { margin-bottom: 0; margin-left: 4px; }
 .replay-unit .unit-opt { padding: 3px 10px; font-size: 11px; }
 .replay-status {
-  font-family: var(--mono);
+  font-family: var(--num);
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
   color: var(--text-dim);
   margin-left: 6px;

@@ -8,7 +8,7 @@
   <div class="hand-meta">
     <div><span class="k">Game</span>{{ hand.game_type }} <span class="pill">{{ hand.limit_type }}</span></div>
     <div><span class="k">Stakes</span>{{ hand.stakes }}</div>
-    <div><span class="k">Date</span>{{ hand.date_played }}</div>
+    <div><span class="k">Date</span>{{ hand.date_played.replace('T', ' ') if hand.date_played else '' }}</div>
     <div><span class="k">Hero cards</span>{{ hand.hero_cards }}</div>
     <div><span class="k">Net</span><span class="{{ 'pos' if hand.hero_net >= 0 else 'neg' }}">{{ '%.2f'|format(hand.hero_net) }}</span></div>
     <div><span class="k">Table</span>{{ hand.table_name }}</div>

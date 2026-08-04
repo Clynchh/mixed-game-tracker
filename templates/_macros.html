@@ -2,7 +2,7 @@
 {% set row_net = (h.hero_net / h.big_blind) if (unit == 'bb' and h.big_blind) else h.hero_net %}
 <tr id="hand-row-{{ h.hand_id }}" class="{{ 'pinned-row' if pinned }}"
     onclick="window.location='{{ url_for('hand_detail', hand_id=h.hand_id) }}'" style="cursor:pointer">
-  <td>{{ h.date_played[:16] if h.date_played else '' }}</td>
+  <td>{{ h.date_played[:16].replace('T', ' ') if h.date_played else '' }}</td>
   <td class="game">{{ h.game_type }} <span class="pill">{{ h.limit_type }}</span></td>
   <td>{{ h.stakes }}</td>
   <td>{{ h.hero_cards }}</td>
