@@ -268,3 +268,73 @@ def simulate_equity(game_type, known_hands, known_board, board_to_deal, cards_pe
             equity[n] += s
 
     return {n: v / trials for n, v in equity.items()}
+
+
+# ---------------------------------------------------------------------------
+# Side pots. A short stack can only ever win back up to what they put in -
+# any extra that bigger stacks bet between themselves forms a separate pot
+# the short stack has no claim on. Standard cardroom construction: sort the
+# distinct amounts people put in, and carve the pot into layers between each
+# amount, with only the players who put in at least that much eligible for
+# that layer.
+# ---------------------------------------------------------------------------
+
+def build_side_pots(investments, eligible_to_win):
+    """investments: {name: total put into the pot this hand} for everyone
+    dealt in, including anyone who folded later (their money still fills
+    whichever layer it landed in, they just can't win it). eligible_to_win:
+    names who can actually win a layer. Returns [(layer_amount, [eligible
+    names for that layer]), ...] - main pot first, then each side pot."""
+    if not investments:
+        return []
+    caps = sorted(set(investments.values()))
+    layers = []
+    prev = 0.0
+    for cap in caps:
+        contributors = [n for n, inv in investments.items() if inv >= cap]
+        eligible = [n for n in contributors if n in eligible_to_win]
+        amount = (cap - prev) * len(contributors)
+        if amount > 0 and eligible:
+            layers.append((amount, eligible))
+        prev = cap
+    return layers
+
+
+def simulate_layered_equity(game_type, known_hands, known_board, board_to_deal, cards_per_player, layers, trials=3000):
+    """Same runout mechanics as simulate_equity, but awards each side-pot
+    layer separately - within one simulated trial the cards are the same for
+    everyone (it's one real deck), but a layer's winner is only decided
+    among the players eligible for that particular layer. Returns {name:
+    expected $/chips won across all layers}, not a 0-1 share."""
+    used = set(known_board)
+    for cards in known_hands.values():
+        used.update(cards)
+    deck = [c for c in full_deck() if c not in used]
+
+    names = list(known_hands.keys())
+    payout = {n: 0.0 for n in names}
+    needed = board_to_deal + cards_per_player * len(names)
+    if needed > len(deck):
+        return None
+
+    rng = random.Random()
+    for _ in range(trials):
+        draw = rng.sample(deck, needed)
+        pos = 0
+        board = known_board + draw[pos:pos + board_to_deal]
+        pos += board_to_deal
+        hands = {}
+        for n in names:
+            extra = draw[pos:pos + cards_per_player]
+            pos += cards_per_player
+            hands[n] = known_hands[n] + extra
+
+        for amount, eligible in layers:
+            sub_hands = {n: hands[n] for n in eligible if n in hands}
+            if not sub_hands:
+                continue
+            shares = score_showdown(game_type, sub_hands, board)
+            for n, s in shares.items():
+                payout[n] += s * amount
+
+    return {n: v / trials for n, v in payout.items()}

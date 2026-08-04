@@ -306,6 +306,8 @@ def _street_blocks(text):
 
 def _board_at_street(text, street_name):
     """Community board cards known as of (and including) street_name."""
+    if street_name == "hole cards":
+        return []  # preflop - no board dealt yet
     board = []
     for m in BOARD_LINE_RE.finditer(text):
         street = m.group(1).lower()
@@ -411,30 +413,30 @@ def compute_allin_ev(raw_text, game_type, hero_name, hero_cards, went_to_showdow
     if board_to_deal <= 0 and cards_per_player <= 0:
         return None  # already fully dealt - nothing random left to adjust for
 
-    result = equity.simulate_equity(game_type, known_hands, known_board, board_to_deal, cards_per_player, trials=trials)
-    if not result or hero_name not in result:
+    # Real side pots: work out what every player at the table actually put
+    # in (including anyone who folded earlier - their money still counts
+    # toward whichever pot layer it landed in), then split the total into
+    # main-pot/side-pot layers the same way a cardroom would, and only let
+    # players compete for the layers they put money into.
+    seats = set(SEAT_RE.findall(raw_text))
+    investments = {name: _compute_money(raw_text, name)[0] for name in seats}
+    hero_inv = investments[hero_name]
+    layers = equity.build_side_pots(investments, eligible_to_win=set(contestants))
+    if not layers:
         return None
 
-    # Hero's eligible pot: cap each contestant's counted contribution at
-    # hero's own investment (the standard side-pot slice for hero's stake),
-    # plus dead money from anyone who folded earlier - that's already
-    # irrevocably in the pot and isn't capped by anyone's stack. This is an
-    # approximation for exotic multi-tier side pots (needs each contestant's
-    # full-hand investment, which _compute_money already tracks generically
-    # per player), but matches exactly whenever hero covers the table or
-    # there's only one side-pot tier, which is the overwhelming majority of
-    # real hands.
-    invested = {name: _compute_money(raw_text, name)[0] for name in contestants}
-    hero_inv = invested[hero_name]
-    capped_total = sum(min(inv, hero_inv) for inv in invested.values())
-    dead_money = max(0.0, pot_total - sum(invested.values()))
-    eligible_pot = capped_total + dead_money
+    payouts = equity.simulate_layered_equity(
+        game_type, known_hands, known_board, board_to_deal, cards_per_player, layers, trials=trials
+    )
+    if not payouts or hero_name not in payouts:
+        return None
 
-    hero_equity = result[hero_name]
+    hero_eligible_pot = sum(amount for amount, eligible in layers if hero_name in eligible)
+    hero_payout = payouts[hero_name]
     return {
-        "equity_pct": round(hero_equity, 4),
-        "eligible_pot": round(eligible_pot, 4),
-        "ev_net": round(hero_equity * eligible_pot - hero_inv, 4),
+        "equity_pct": round(hero_payout / hero_eligible_pot, 4) if hero_eligible_pot else 0.0,
+        "eligible_pot": round(hero_eligible_pot, 4),
+        "ev_net": round(hero_payout - hero_inv, 4),
     }
 
 
