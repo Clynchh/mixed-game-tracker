@@ -37,6 +37,7 @@
       {% for name, color in preset_tags %}
       {% set active = name in current_tags %}
       <button type="button" class="quick-tag-btn {{ 'active' if active }}" style="--dot-color:{{ color }}"
+              title="{{ preset_descriptions.get(name, name) }}"
               onclick="toggleQuickTag('{{ hand.hand_id }}', '{{ name }}', {{ 'true' if active else 'false' }}, event)">
         {{ name }}
       </button>

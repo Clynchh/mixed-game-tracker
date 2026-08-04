@@ -200,6 +200,17 @@ def _opening_round_block(text):
     return text[start:end]
 
 
+def _hero_vpip(text, hero_name):
+    """VPIP = hero voluntarily put money in during the opening round (calls,
+    bets, raises, completes). Posting a blind/ante/bring-in doesn't count -
+    those are forced - and neither does folding without ever having acted."""
+    if not hero_name:
+        return False
+    block = _opening_round_block(text)
+    pattern = re.compile(rf"^{re.escape(hero_name)}: (?:calls|bets|raises|completes it to)\b", re.MULTILINE)
+    return bool(pattern.search(block))
+
+
 def _classify_pot_type(text, game_type):
     block = _opening_round_block(text)
     raises = len(RAISE_ACTION_RE.findall(block))
@@ -487,6 +498,7 @@ def parse_hand(raw_text, source_file="", hero_username=None):
     net = round(collected - invested, 4)
     pot_type = _classify_pot_type(raw_text, game_type)
     went_to_showdown = _went_to_showdown(raw_text, hero_name)
+    vpip = _hero_vpip(raw_text, hero_name)
 
     allin_ev = compute_allin_ev(raw_text, game_type, hero_name, hero_cards, went_to_showdown, pot_total)
 
@@ -515,6 +527,7 @@ def parse_hand(raw_text, source_file="", hero_username=None):
         "pot_total": pot_total,
         "pot_type": pot_type,
         "went_to_showdown": 1 if went_to_showdown else 0,
+        "vpip": 1 if vpip else 0,
         "is_allin_ev": 1 if allin_ev else 0,
         "equity_pct": allin_ev["equity_pct"] if allin_ev else None,
         "ev_net": allin_ev["ev_net"] if allin_ev else None,

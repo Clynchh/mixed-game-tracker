@@ -41,6 +41,13 @@ PRESET_TAGS = [
     ("punt", "#4a90d9"),
 ]
 PRESET_TAG_COLORS = dict(PRESET_TAGS)
+PRESET_TAG_DESCRIPTIONS = {
+    "superb": "Superb — excellent, textbook play",
+    "good": "Good — solid, correct decision",
+    "review": "Review — worth a second look later",
+    "bad": "Bad — a clear mistake",
+    "punt": "Punt — a big blunder or tilt play",
+}
 
 
 @app.route("/")
@@ -171,6 +178,7 @@ def dashboard():
         last_scan_time=fw.last_scan_time,
         preset_tags=PRESET_TAGS,
         preset_colors=PRESET_TAG_COLORS,
+        preset_descriptions=PRESET_TAG_DESCRIPTIONS,
     )
 
 
@@ -209,10 +217,12 @@ def reports():
     pot_max = _report_float("pot_max")
     net_min = _report_float("net_min")
     net_max = _report_float("net_max")
+    vpip_only = request.args.get("vpip") == "1"
 
     filters = dict(
         game_type=game_type, tag=tag, search=search, is_tournament=is_tournament,
         pot_type=pot_type, pot_min=pot_min, pot_max=pot_max, net_min=net_min, net_max=net_max,
+        vpip=vpip_only,
     )
 
     all_matching = db.list_hands(sort=sort, order=order, limit=None, **filters)
@@ -233,6 +243,8 @@ def reports():
         "bb_per_100": (net_bb_total / len(bb_rows) * 100) if bb_rows else None,
     }
 
+    bounds = db.pot_net_bounds(is_tournament=is_tournament)
+
     return render_template(
         "reports.html",
         hands=hands,
@@ -249,9 +261,12 @@ def reports():
         selected_tag=tag,
         search=search or "",
         pot_min=pot_min, pot_max=pot_max, net_min=net_min, net_max=net_max,
+        bounds=bounds,
+        vpip_only=vpip_only,
         sort=sort, order=order,
         preset_tags=PRESET_TAGS,
         preset_colors=PRESET_TAG_COLORS,
+        preset_descriptions=PRESET_TAG_DESCRIPTIONS,
     )
 
 
@@ -265,7 +280,8 @@ def hand_row_partial(hand_id):
     unit = request.args.get("unit")
     if unit not in ("raw", "bb"):
         unit = "raw"
-    return render_template("_hand_row_only.html", h=hand, unit=unit, preset_tags=PRESET_TAGS, preset_colors=PRESET_TAG_COLORS)
+    return render_template("_hand_row_only.html", h=hand, unit=unit, preset_tags=PRESET_TAGS,
+                            preset_colors=PRESET_TAG_COLORS, preset_descriptions=PRESET_TAG_DESCRIPTIONS)
 
 
 @app.route("/hand/<hand_id>")
@@ -273,7 +289,8 @@ def hand_detail(hand_id):
     hand = db.get_hand(hand_id)
     if not hand:
         return "Hand not found", 404
-    return render_template("hand.html", hand=hand, preset_tags=PRESET_TAGS, preset_colors=PRESET_TAG_COLORS)
+    return render_template("hand.html", hand=hand, preset_tags=PRESET_TAGS,
+                            preset_colors=PRESET_TAG_COLORS, preset_descriptions=PRESET_TAG_DESCRIPTIONS)
 
 
 @app.route("/hand/<hand_id>/tag", methods=["POST"])

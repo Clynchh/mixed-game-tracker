@@ -248,6 +248,80 @@ input[type=number]::-webkit-outer-spin-button {
   filter: invert(0.6);
 }
 
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.checkbox-label input[type=checkbox] { accent-color: var(--gold-dim); cursor: pointer; }
+
+.range-slider { padding-top: 2px; }
+.rs-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+.rs-value { font-family: var(--mono); text-transform: none; letter-spacing: normal; color: var(--text); }
+.rs-track-wrap { position: relative; height: 16px; }
+.rs-track {
+  position: absolute;
+  top: 7px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+}
+.rs-fill {
+  position: absolute;
+  top: 7px;
+  height: 3px;
+  background: var(--gold-dim);
+  border-radius: 2px;
+}
+.range-slider input[type=range] {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 16px;
+  margin: 0;
+  background: none;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.range-slider input[type=range]::-webkit-slider-thumb {
+  pointer-events: all;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--gold);
+  cursor: pointer;
+  border: 2px solid var(--bg);
+  margin-top: 0;
+}
+.range-slider input[type=range]::-moz-range-thumb {
+  pointer-events: all;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--gold);
+  cursor: pointer;
+  border: 2px solid var(--bg);
+}
+.range-slider input[type=range]::-webkit-slider-runnable-track { background: none; }
+.range-slider input[type=range]::-moz-range-track { background: none; }
+
 button, .btn {
   background: var(--gold-dim);
   color: #14161b;
@@ -339,7 +413,7 @@ table.hands tr:hover .tag-dots { opacity: 1; }
   cursor: pointer;
   padding: 0;
 }
-.tag-dot:hover { transform: scale(1.2); }
+.tag-dot:hover { transform: scale(1.2); background: var(--dot-color, var(--gold)); }
 .tag-dot.active { background: var(--dot-color, var(--gold)); }
 .tag-pills-mini { display: flex; gap: 4px; flex-wrap: wrap; }
 .tag-pill-mini {

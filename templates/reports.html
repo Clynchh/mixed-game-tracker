@@ -8,7 +8,7 @@
 
 {% macro sort_link(col, label) -%}
   {% set next_order = 'asc' if (sort == col and order == 'desc') else 'desc' %}
-  <a href="{{ url_for('reports', mode=mode, game_type=selected_game_type, pot_type=selected_pot_type, tag=selected_tag, search=search, pot_min=pot_min, pot_max=pot_max, net_min=net_min, net_max=net_max, unit=unit, sort=col, order=next_order) }}"
+  <a href="{{ url_for('reports', mode=mode, game_type=selected_game_type, pot_type=selected_pot_type, tag=selected_tag, search=search, pot_min=pot_min, pot_max=pot_max, net_min=net_min, net_max=net_max, vpip=('1' if vpip_only else none), unit=unit, sort=col, order=next_order) }}"
      class="sort-link {{ 'active' if sort == col }}">
     {{ label }}{% if sort == col %}<span class="sort-arrow">{{ '&uarr;'|safe if order == 'asc' else '&darr;'|safe }}</span>{% endif %}
   </a>
@@ -19,14 +19,14 @@
 <div class="tabs-row" style="border-bottom:none;margin-bottom:16px;">
   <h2 style="font-family:var(--mono);font-weight:600;margin:0;">Reports</h2>
   <div class="unit-toggle">
-    <a href="{{ url_for('reports', mode=mode, game_type=selected_game_type, pot_type=selected_pot_type, tag=selected_tag, search=search, pot_min=pot_min, pot_max=pot_max, net_min=net_min, net_max=net_max, sort=sort, order=order, unit='raw') }}"
+    <a href="{{ url_for('reports', mode=mode, game_type=selected_game_type, pot_type=selected_pot_type, tag=selected_tag, search=search, pot_min=pot_min, pot_max=pot_max, net_min=net_min, net_max=net_max, vpip=('1' if vpip_only else none), sort=sort, order=order, unit='raw') }}"
        class="unit-opt {{ 'active' if unit == 'raw' }}">$ / chips</a>
-    <a href="{{ url_for('reports', mode=mode, game_type=selected_game_type, pot_type=selected_pot_type, tag=selected_tag, search=search, pot_min=pot_min, pot_max=pot_max, net_min=net_min, net_max=net_max, sort=sort, order=order, unit='bb') }}"
+    <a href="{{ url_for('reports', mode=mode, game_type=selected_game_type, pot_type=selected_pot_type, tag=selected_tag, search=search, pot_min=pot_min, pot_max=pot_max, net_min=net_min, net_max=net_max, vpip=('1' if vpip_only else none), sort=sort, order=order, unit='bb') }}"
        class="unit-opt {{ 'active' if unit == 'bb' }}">BB</a>
   </div>
 </div>
 
-<form class="controls" method="get" style="flex-wrap:wrap;">
+<form class="controls" method="get" style="flex-wrap:wrap;align-items:flex-start;">
   <select name="mode">
     <option value="" {{ 'selected' if mode == '' }}>cash + tournament</option>
     <option value="cash" {{ 'selected' if mode == 'cash' }}>cash only</option>
@@ -51,10 +51,40 @@
     {% endfor %}
   </select>
   <input type="text" name="search" placeholder="search raw hand text..." value="{{ search }}" style="width:160px;">
-  <input type="number" step="any" name="pot_min" placeholder="min pot" value="{{ pot_min if pot_min is not none else '' }}" style="width:90px;">
-  <input type="number" step="any" name="pot_max" placeholder="max pot" value="{{ pot_max if pot_max is not none else '' }}" style="width:90px;">
-  <input type="number" step="any" name="net_min" placeholder="min net" value="{{ net_min if net_min is not none else '' }}" style="width:90px;">
-  <input type="number" step="any" name="net_max" placeholder="max net" value="{{ net_max if net_max is not none else '' }}" style="width:90px;">
+
+  {% if bounds.pot_min is not none and bounds.pot_max is not none and bounds.pot_max > bounds.pot_min %}
+  <div class="range-slider" style="width:170px;">
+    <div class="rs-labels"><span>pot</span><span class="rs-value"><span class="rs-min-label"></span>&ndash;<span class="rs-max-label"></span></span></div>
+    <div class="rs-track-wrap">
+      <div class="rs-track"></div>
+      <div class="rs-fill"></div>
+      <input type="range" name="pot_min" min="{{ bounds.pot_min }}" max="{{ bounds.pot_max }}" step="any"
+             value="{{ pot_min if pot_min is not none else bounds.pot_min }}">
+      <input type="range" name="pot_max" min="{{ bounds.pot_min }}" max="{{ bounds.pot_max }}" step="any"
+             value="{{ pot_max if pot_max is not none else bounds.pot_max }}">
+    </div>
+  </div>
+  {% endif %}
+
+  {% if bounds.net_min is not none and bounds.net_max is not none and bounds.net_max > bounds.net_min %}
+  <div class="range-slider" style="width:170px;">
+    <div class="rs-labels"><span>net</span><span class="rs-value"><span class="rs-min-label"></span>&ndash;<span class="rs-max-label"></span></span></div>
+    <div class="rs-track-wrap">
+      <div class="rs-track"></div>
+      <div class="rs-fill"></div>
+      <input type="range" name="net_min" min="{{ bounds.net_min }}" max="{{ bounds.net_max }}" step="any"
+             value="{{ net_min if net_min is not none else bounds.net_min }}">
+      <input type="range" name="net_max" min="{{ bounds.net_min }}" max="{{ bounds.net_max }}" step="any"
+             value="{{ net_max if net_max is not none else bounds.net_max }}">
+    </div>
+  </div>
+  {% endif %}
+
+  <label class="checkbox-label">
+    <input type="checkbox" name="vpip" value="1" {{ 'checked' if vpip_only }}>
+    VPIP only
+  </label>
+
   <input type="hidden" name="sort" value="{{ sort }}">
   <input type="hidden" name="order" value="{{ order }}">
   <input type="hidden" name="unit" value="{{ unit }}">
@@ -96,7 +126,7 @@
       <td><span class="pill">{{ h.pot_type }}</span></td>
       <td>{{ '%.2f'|format(row_pot) if row_pot is not none else '' }}{{ ' bb' if (unit == 'bb' and h.big_blind) else '' }}</td>
       <td class="{{ 'pos' if row_net >= 0 else 'neg' }}">{{ '%.2f'|format(row_net) }}{{ ' bb' if (unit == 'bb' and h.big_blind) else '' }}</td>
-      {{ tag_cell(h, preset_tags, preset_colors) }}
+      {{ tag_cell(h, preset_tags, preset_colors, preset_descriptions) }}
     </tr>
     {% endfor %}
   </tbody>

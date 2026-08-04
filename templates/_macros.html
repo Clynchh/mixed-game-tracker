@@ -1,4 +1,4 @@
-{% macro hand_row(h, unit, preset_tags, preset_colors, pinned=false) %}
+{% macro hand_row(h, unit, preset_tags, preset_colors, preset_descriptions, pinned=false) %}
 {% set row_net = (h.hero_net / h.big_blind) if (unit == 'bb' and h.big_blind) else h.hero_net %}
 <tr id="hand-row-{{ h.hand_id }}" class="{{ 'pinned-row' if pinned }}"
     onclick="window.location='{{ url_for('hand_detail', hand_id=h.hand_id) }}'" style="cursor:pointer">
@@ -7,19 +7,19 @@
   <td>{{ h.stakes }}</td>
   <td>{{ h.hero_cards }}</td>
   <td class="{{ 'pos' if row_net >= 0 else 'neg' }}">{{ '%.2f'|format(row_net) }}{{ ' bb' if (unit == 'bb' and h.big_blind) else '' }}</td>
-  {{ tag_cell(h, preset_tags, preset_colors) }}
+  {{ tag_cell(h, preset_tags, preset_colors, preset_descriptions) }}
 </tr>
 {% endmacro %}
 
 
-{% macro tag_cell(h, preset_tags, preset_colors) %}
+{% macro tag_cell(h, preset_tags, preset_colors, preset_descriptions) %}
 {% set current_tags = h.tag_list.split(',') if h.tag_list else [] %}
 <td class="tag-cell" onclick="event.stopPropagation()">
   <div class="tag-dots">
     {% for name, color in preset_tags %}
     {% set active = name in current_tags %}
     <button type="button" class="tag-dot {{ 'active' if active }}" style="--dot-color:{{ color }}"
-            title="{{ name }}{{ ' (click to remove)' if active else '' }}"
+            title="{{ preset_descriptions.get(name, name) }}{{ ' (click to remove)' if active else '' }}"
             onclick="toggleQuickTag('{{ h.hand_id }}', '{{ name }}', {{ 'true' if active else 'false' }}, event)"></button>
     {% endfor %}
   </div>

@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS hands (
     pot_total     REAL,
     pot_type      TEXT,
     went_to_showdown INTEGER,
+    vpip          INTEGER,
     is_allin_ev   INTEGER,
     equity_pct    REAL,
     ev_net        REAL,
@@ -103,6 +104,8 @@ def _migrate(conn):
         conn.execute("ALTER TABLE hands ADD COLUMN is_allin_ev INTEGER")
         conn.execute("ALTER TABLE hands ADD COLUMN equity_pct REAL")
         conn.execute("ALTER TABLE hands ADD COLUMN ev_net REAL")
+    if "vpip" not in cols:
+        conn.execute("ALTER TABLE hands ADD COLUMN vpip INTEGER")
 
 
 def init_db():
@@ -120,11 +123,11 @@ def upsert_hand(hand: dict) -> bool:
             """INSERT INTO hands
                (hand_id, game_type, limit_type, stakes, is_tournament, tournament_id,
                 table_name, date_played, hero_name, hero_cards, hero_invested,
-                hero_collected, hero_net, pot_total, pot_type, went_to_showdown,
+                hero_collected, hero_net, pot_total, pot_type, went_to_showdown, vpip,
                 is_allin_ev, equity_pct, ev_net, big_blind, num_players, source_file, raw_text)
                VALUES (:hand_id, :game_type, :limit_type, :stakes, :is_tournament, :tournament_id,
                        :table_name, :date_played, :hero_name, :hero_cards, :hero_invested,
-                       :hero_collected, :hero_net, :pot_total, :pot_type, :went_to_showdown,
+                       :hero_collected, :hero_net, :pot_total, :pot_type, :went_to_showdown, :vpip,
                        :is_allin_ev, :equity_pct, :ev_net, :big_blind, :num_players, :source_file, :raw_text)
                ON CONFLICT(hand_id) DO UPDATE SET
                  game_type=excluded.game_type, limit_type=excluded.limit_type, stakes=excluded.stakes,
@@ -133,7 +136,7 @@ def upsert_hand(hand: dict) -> bool:
                  hero_name=excluded.hero_name, hero_cards=excluded.hero_cards,
                  hero_invested=excluded.hero_invested, hero_collected=excluded.hero_collected,
                  hero_net=excluded.hero_net, pot_total=excluded.pot_total, pot_type=excluded.pot_type,
-                 went_to_showdown=excluded.went_to_showdown, is_allin_ev=excluded.is_allin_ev,
+                 went_to_showdown=excluded.went_to_showdown, vpip=excluded.vpip, is_allin_ev=excluded.is_allin_ev,
                  equity_pct=excluded.equity_pct, ev_net=excluded.ev_net, big_blind=excluded.big_blind,
                  num_players=excluded.num_players, source_file=excluded.source_file, raw_text=excluded.raw_text""",
             hand,
@@ -217,7 +220,7 @@ SORT_COLUMNS = {
 
 def list_hands(game_type=None, tag=None, date_from=None, date_to=None, limit=200, offset=0, search=None,
                 is_tournament=None, pot_type=None, pot_min=None, pot_max=None, net_min=None, net_max=None,
-                sort="date", order="desc"):
+                vpip=None, sort="date", order="desc"):
     query = """SELECT h.*,
                       (SELECT GROUP_CONCAT(tag) FROM tags WHERE tags.hand_id = h.hand_id) as tag_list
                FROM hands h"""
@@ -250,6 +253,8 @@ def list_hands(game_type=None, tag=None, date_from=None, date_to=None, limit=200
     if net_max is not None:
         where.append("h.hero_net <= ?")
         params.append(net_max)
+    if vpip:
+        where.append("h.vpip = 1")
     if date_from:
         where.append("h.date_played >= ?")
         params.append(date_from)
@@ -297,6 +302,18 @@ def all_game_types(is_tournament=None):
     query += " ORDER BY game_type"
     with get_conn() as conn:
         return [r["game_type"] for r in conn.execute(query, params).fetchall()]
+
+
+def pot_net_bounds(is_tournament=None):
+    """Min/max pot size and net result across the matching hands - used to
+    size the Reports page's range sliders to the actual data."""
+    query = "SELECT MIN(pot_total) as pot_min, MAX(pot_total) as pot_max, MIN(hero_net) as net_min, MAX(hero_net) as net_max FROM hands"
+    params = []
+    if is_tournament is not None:
+        query += " WHERE is_tournament = ?"
+        params.append(is_tournament)
+    with get_conn() as conn:
+        return dict(conn.execute(query, params).fetchone())
 
 
 def get_hand(hand_id):
