@@ -1,15 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Settings · MixTrack{% endblock %}
+{% block title %}Settings · Mixed Games Tracker{% endblock %}
 
 {% block content %}
-<h2 style="font-family:var(--mono);font-weight:600;">Settings</h2>
+<h2 class="page-title" style="margin-bottom:18px;">Settings</h2>
 
 <form class="settings-form" method="post">
   <label for="hand_history_dir">Hand history folder</label>
   <input type="text" id="hand_history_dir" name="hand_history_dir" value="{{ folder }}"
          placeholder="/home/corey/.PokerStars/HandHistory/YourUsername">
   <div class="help">
-    This is a plain folder path &mdash; MixTrack only reads <code>.txt</code> files inside it on an interval.
+    This is a plain folder path &mdash; Mixed Games Tracker only reads <code>.txt</code> files inside it on an interval.
     It never touches the PokerStars client or process, so it's not a HUD and doesn't
     interact with the client while you play. Find yours in PokerStars:
     Settings &rarr; Hand History &rarr; Hand History Location.

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import tag_cell, hand_row %}
-{% block title %}Dashboard · MixTrack{% endblock %}
+{% block title %}Dashboard · Mixed Games Tracker{% endblock %}
 
 {% block header_meta %}
   {% if folder %}
@@ -17,7 +17,7 @@
 
 {% if not folder %}
   <div class="empty-state">
-    <h3>Point MixTrack at your hand history folder</h3>
+    <h3>Point Mixed Games Tracker at your hand history folder</h3>
     <p>In PokerStars: Settings &rarr; Hand History &rarr; make sure history saving is on, then note the folder.</p>
     <p><a href="/settings" class="btn">Set folder in Settings</a></p>
   </div>

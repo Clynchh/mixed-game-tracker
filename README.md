@@ -1,4 +1,4 @@
-# MixTrack
+# Mixed Games Tracker
 
 A local hand tracker for mixed games (8-Game rotation + NL 2-7 Single Draw,
 razz, stud, stud hi/lo, omaha hi/lo, triple draw, hold'em) that PokerTracker
@@ -35,10 +35,10 @@ something like:
 Also set your **PokerStars username** in Settings. Hold'em/Omaha hands only
 ever reveal your own hole cards, so guessing "hero" by file position works
 fine there — but stud/razz hands reveal every player's up-cards each street,
-so without your exact username MixTrack can misidentify another player at
+so without your exact username Mixed Games Tracker can misidentify another player at
 the table as you and get your net result completely wrong.
 
-Once set, MixTrack scans the folder every 15 seconds for new/changed `.txt`
+Once set, Mixed Games Tracker scans the folder every 15 seconds for new/changed `.txt`
 files. It's safe to point it at a folder you're actively playing in — it
 only reads, never writes there.
 

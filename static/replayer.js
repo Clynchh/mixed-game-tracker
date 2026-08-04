@@ -76,7 +76,7 @@ class HandReplayer {
             <div class="seat-bet"></div>
             <div class="seat-cards"></div>
             <div class="seat-plate">
-              <div class="seat-name">${s.is_hero ? "★ " : ""}${s.name}${s.is_button ? ' <span class="btn-chip">D</span>' : ""}</div>
+              <div class="seat-name">${s.name}${s.is_hero ? ' <span class="you-badge">you</span>' : ""}${s.is_button ? ' <span class="btn-chip">D</span>' : ""}</div>
               <div class="seat-stack"></div>
             </div>
           </div>`).join("")}

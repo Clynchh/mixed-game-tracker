@@ -1,16 +1,20 @@
 :root {
-  --bg:        #14161b;
-  --panel:     #1b1e25;
-  --panel-2:   #21252e;
-  --border:    #2c313c;
-  --text:      #e7e4dc;
-  --text-dim:  #8b90a0;
-  --gold:      #c9a24a;
-  --gold-dim:  #8a733a;
+  --bg:        #101216;
+  --panel:     #171a20;
+  --panel-2:   #1d212a;
+  --border:    #272c36;
+  --text:      #e8eaee;
+  --text-dim:  #888f9c;
+  --gold:      #c2a15e;
+  --gold-dim:  #8a7442;
   --win:       #5fae6e;
   --loss:      #c0564f;
-  --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-  --sans: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --radius:    6px;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+  /* System UI stack - no webfont request, since the app never touches the
+     network. Segoe UI Variable is the modern Windows UI face and sits first. */
+  --sans: "Segoe UI Variable Text", "Segoe UI", ui-sans-serif, -apple-system,
+          BlinkMacSystemFont, Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -21,38 +25,56 @@ body {
   color: var(--text);
   font-family: var(--sans);
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 a { color: var(--gold); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-header.top {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 18px 28px;
-  border-bottom: 1px solid var(--border);
-  background: linear-gradient(180deg, var(--panel-2), var(--bg));
-}
-
-header.top .brand {
-  font-family: var(--mono);
-  font-weight: 700;
-  font-size: 17px;
-  letter-spacing: 0.02em;
+h1, h2, h3 {
+  font-family: var(--sans);
+  font-weight: 600;
+  letter-spacing: -0.011em;
   color: var(--text);
 }
-header.top .brand span { color: var(--gold); }
+
+.page-title { font-size: 19px; font-weight: 600; letter-spacing: -0.015em; margin: 0; }
+
+header.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 14px 28px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+header.top .brand a {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -0.012em;
+  color: var(--text);
+  white-space: nowrap;
+}
+header.top .brand a:hover { text-decoration: none; color: var(--text); }
 
 header.top .top-nav {
   display: flex;
-  gap: 18px;
+  gap: 4px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
+  margin-right: auto;
 }
-header.top .top-nav a { color: var(--text-dim); }
-header.top .top-nav a:hover { color: var(--text); text-decoration: none; }
+header.top .top-nav a {
+  color: var(--text-dim);
+  padding: 5px 10px;
+  border-radius: var(--radius);
+}
+header.top .top-nav a:hover { color: var(--text); text-decoration: none; background: var(--panel-2); }
 
 header.top .meta {
   font-size: 12px;
@@ -222,8 +244,15 @@ main { padding: 24px 28px 60px; max-width: 1180px; margin: 0 auto; }
   margin-bottom: 22px;
   font-family: var(--mono);
 }
-.overall-banner .big { font-size: 26px; font-weight: 700; }
-.overall-banner .lbl { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+.overall-banner .big { font-size: 23px; font-weight: 600; letter-spacing: -0.02em; }
+.overall-banner .lbl {
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 500;
+}
 
 .controls {
   display: flex;
@@ -238,9 +267,14 @@ input[type=text], input[type=number], select {
   border: 1px solid var(--border);
   color: var(--text);
   padding: 7px 10px;
-  border-radius: 5px;
+  border-radius: var(--radius);
   font-family: var(--sans);
   font-size: 13px;
+  transition: border-color 0.12s;
+}
+input[type=text]:focus, input[type=number]:focus, select:focus {
+  outline: none;
+  border-color: var(--gold-dim);
 }
 input[type=text]::placeholder, input[type=number]::placeholder { color: var(--text-dim); }
 /* Chrome/Edge/Safari number spinner - default renders as a light widget
@@ -326,21 +360,24 @@ input[type=number]::-webkit-outer-spin-button {
 
 button, .btn {
   background: var(--gold-dim);
-  color: #14161b;
-  border: none;
+  color: #0f1115;
+  border: 1px solid transparent;
   padding: 7px 14px;
-  border-radius: 5px;
+  border-radius: var(--radius);
+  font-family: var(--sans);
   font-weight: 600;
   cursor: pointer;
   font-size: 13px;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
 button:hover, .btn:hover { background: var(--gold); text-decoration: none; }
 .btn-ghost {
   background: transparent;
   border: 1px solid var(--border);
   color: var(--text-dim);
+  font-weight: 500;
 }
-.btn-ghost:hover { border-color: var(--gold-dim); color: var(--text); background: transparent; }
+.btn-ghost:hover { border-color: var(--border); color: var(--text); background: var(--panel-2); }
 
 table.hands {
   width: 100%;
@@ -358,10 +395,11 @@ table.hands {
 table.hands th {
   text-align: left;
   font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   color: var(--text-dim);
-  padding: 10px 12px;
+  padding: 9px 12px;
   border-bottom: 1px solid var(--border);
   background: var(--panel-2);
 }
@@ -369,7 +407,7 @@ table.hands td {
   padding: 9px 12px;
   border-bottom: 1px solid var(--border);
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 12.5px;
 }
 table.hands tr:last-child td { border-bottom: none; }
 table.hands tr:hover { background: var(--panel-2); }
@@ -642,6 +680,18 @@ pre.raw-hand {
   color: var(--bg);
   font-size: 9px;
   font-weight: 700;
+  vertical-align: middle;
+}
+.you-badge {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--gold-dim);
+  color: #0f1115;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   vertical-align: middle;
 }
 .seat-bet {

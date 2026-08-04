@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import tag_cell %}
-{% block title %}Reports · MixTrack{% endblock %}
+{% block title %}Reports · Mixed Games Tracker{% endblock %}
 
 {% block header_meta %}
   <span>{{ total }} hands match{% if total > shown %} &middot; showing first {{ shown }}{% endif %}</span>
@@ -17,7 +17,7 @@
 {% block content %}
 
 <div class="tabs-row" style="border-bottom:none;margin-bottom:16px;">
-  <h2 style="font-family:var(--mono);font-weight:600;margin:0;">Reports</h2>
+  <h2 class="page-title">Reports</h2>
   <div class="unit-toggle">
     <a href="{{ url_for('reports', mode=mode, game_type=selected_game_type, pot_type=selected_pot_type, tag=selected_tag, search=search, pot_min=pot_min, pot_max=pot_max, net_min=net_min, net_max=net_max, vpip=('1' if vpip_only else none), sort=sort, order=order, unit='raw') }}"
        class="unit-opt {{ 'active' if unit == 'raw' }}">$ / chips</a>
