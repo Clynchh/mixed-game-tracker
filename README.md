@@ -111,17 +111,16 @@ their own empty database.
 
 ### Taking donations
 
-Off by default. Open `support_config.py` and paste in payment links from a
-provider — Stripe Payment Links, Ko-fi, GitHub Sponsors and PayPal all work.
-Fill in any of one-off / monthly / quarterly / yearly; whichever you set are
-the options offered. Leave them all empty and there's no Support page, no
-nav link and no mention of money anywhere in the app.
+Off by default. Open `support_config.py` and set `KOFI_USERNAME` to your
+Ko-fi handle, and a small "Support me" button appears at the bottom-left of
+every page, linking out to your Ko-fi page. Leave it empty and no button
+shows and no request to ko-fi.com is ever made.
 
 The app never processes payments itself, and deliberately so: it runs on
 each player's own machine, so any secret key shipped inside it would be
-readable by everyone holding a copy. It only ever links out to the
-provider's hosted checkout page, meaning no card details, keys or accounts
-go anywhere near this code.
+readable by everyone holding a copy. The button only ever links out to your
+Ko-fi page, which handles the actual checkout — no card details, keys or
+accounts go anywhere near this code.
 
 ## How it works
 

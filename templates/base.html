@@ -15,7 +15,6 @@
     <nav class="top-nav">
       <a href="/">Dashboard</a>
       <a href="/reports">Reports</a>
-      {% if support_enabled %}<a href="/support">Support</a>{% endif %}
     </nav>
     <div class="meta">
       {% block header_meta %}{% endblock %}
@@ -44,5 +43,16 @@
         .then(() => location.reload());
     }
   </script>
+  {% if kofi_username %}
+  <script src="https://storage.ko-fi.com/cdn/scripts/overlay-widget.js"></script>
+  <script>
+    kofiWidgetOverlay.draw('{{ kofi_username }}', {
+      'type': 'floating-chat',
+      'floating-chat.donateButton.text': 'Support me',
+      'floating-chat.donateButton.background-color': '#f45d22',
+      'floating-chat.donateButton.text-color': '#fff'
+    });
+  </script>
+  {% endif %}
 </body>
 </html>

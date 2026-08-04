@@ -83,7 +83,7 @@ def require_setup():
     dashboard that silently reports nothing."""
     if is_configured():
         return None
-    allowed = {"setup", "save_setup", "settings", "static", "support"}
+    allowed = {"setup", "save_setup", "settings", "static"}
     if request.endpoint in allowed:
         return None
     return redirect(url_for("setup"))
@@ -91,10 +91,10 @@ def require_setup():
 
 @app.context_processor
 def inject_globals():
-    """Available to every template - the nav needs to know whether there's a
-    Support page to link to, and every page can flag a pending re-import."""
+    """Available to every template - the Ko-fi button needs to know whether
+    it's configured, and every page can flag a pending re-import."""
     return {
-        "support_enabled": support_config.is_enabled(),
+        "kofi_username": support_config.KOFI_USERNAME,
         "app_version": version.VERSION,
         "reimport_needed": db.reimport_needed(),
     }
@@ -151,24 +151,6 @@ def save_setup():
     db.set_setting("hero_username", username)
     watcher.scan_folder(folder, hero_username=username)
     return redirect(url_for("dashboard"))
-
-
-@app.route("/support")
-def support():
-    if not support_config.is_enabled():
-        return redirect(url_for("dashboard"))
-    return render_template(
-        "support.html",
-        options=support_config.configured_options(),
-        blurb=support_config.SUPPORT_BLURB,
-        contact=support_config.SUPPORT_CONTACT,
-    )
-
-
-@app.route("/support/dismiss", methods=["POST"])
-def dismiss_support_note():
-    db.set_setting("support_note_dismissed", "1")
-    return jsonify({"ok": True})
 
 
 def default_unit_for(mode):
@@ -312,11 +294,6 @@ def dashboard():
         total_hands=cash_count + tourney_count,
         matching_hands=matching_hands,
         show_all=show_all,
-        # Mentioned once, only after the app has actually been useful for a
-        # while, and permanently dismissible. Never blocks anything.
-        show_support_note=(support_config.is_enabled()
-                           and db.get_setting("support_note_dismissed") != "1"
-                           and (cash_count + tourney_count) >= 500),
         tourney_results=tourney_results,
         tourney_roi=tourney_roi,
         tourney_avg_buyin=tourney_avg_buyin,
