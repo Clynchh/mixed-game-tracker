@@ -657,6 +657,11 @@ pre.raw-hand {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  /* Never squeeze to fit the seat - by 7th street a stud player holds seven
+     cards, far wider than the seat plate. They keep full size and the row
+     just overflows, centred, rather than getting progressively smaller as
+     the streets go by. */
+  flex-shrink: 0;
   width: 34px;
   height: 48px;
   background: #f4f1e8;
