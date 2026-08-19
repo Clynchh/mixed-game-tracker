@@ -22,18 +22,24 @@ owning a Mac. You still review, test, and publish by hand.
    ```
 4. **Wait for the workflow to finish** (repo page → Actions tab) — it
    builds both platforms and opens a **draft** release with
-   `MixedGamesTracker-windows.exe` and `MixedGamesTracker-macos` attached.
+   `MixedGamesTracker-windows.exe` and `MixedGamesTracker-macos.tar.gz`
+   attached. The Mac build is a `.tar.gz`, not a raw binary - GitHub's
+   artifact upload/download strips the executable bit off a raw file, and
+   tar is what keeps it intact all the way to the download.
 5. **Test both for real** before publishing:
    - Windows: download the `.exe` somewhere outside the project folder and
      double-click it, like a friend would. Confirm it opens a browser,
      walks you through setup, and works.
-   - macOS: it's unsigned and unnotarized (no Apple Developer account is
-     wired up), so Gatekeeper will refuse to open it with a plain
-     double-click. Whoever tests it needs to right-click → Open the first
-     time (or `xattr -d com.apple.quarantine MixedGamesTracker` in
-     Terminal), then approve it once in System Settings → Privacy &
-     Security. Worth spelling this out to Mac-using friends too, since
-     they'll hit the same prompt.
+   - macOS: double-click the `.tar.gz` to extract it (Archive Utility does
+     this automatically), then right-click the extracted
+     `MixedGamesTracker` file → **Open** - it's unsigned and unnotarized
+     (no Apple Developer account is wired up), so a plain double-click
+     gets refused, but right-click → Open shows an "Open" button the first
+     time. After that one approval it opens normally. If it still won't
+     run, `chmod +x MixedGamesTracker` in Terminal first (this shouldn't
+     be needed with the tar packaging, but it's the fallback if it ever
+     comes up again). Worth spelling all of this out to Mac-using friends
+     too, since they'll hit the same prompts.
 6. **Publish the draft** once both check out, and edit in release notes.
 7. **Send friends the Releases page link.** They download the file for
    their OS, run it, done.

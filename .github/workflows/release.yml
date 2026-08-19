@@ -27,7 +27,7 @@ jobs:
             asset_name: MixedGamesTracker-windows.exe
           - os: macos-latest
             built_name: MixedGamesTracker
-            asset_name: MixedGamesTracker-macos
+            asset_name: MixedGamesTracker-macos.tar.gz
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -44,11 +44,25 @@ jobs:
       - name: Build with PyInstaller
         run: pyinstaller MixedGamesTracker.spec
 
-      - name: Rename artifact
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
         shell: bash
         run: |
           mkdir -p out
           cp "dist/${{ matrix.built_name }}" "out/${{ matrix.asset_name }}"
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        # A raw binary loses its executable bit round-tripping through
+        # upload-artifact/download-artifact (a known gap in how it handles
+        # POSIX permissions), so whoever downloads the release asset gets a
+        # file macOS can't run - Finder just opens it as text instead.
+        # tar preserves the bit through that whole path, and Archive
+        # Utility restores it correctly on extraction.
+        run: |
+          chmod +x "dist/${{ matrix.built_name }}"
+          mkdir -p out
+          tar -czf "out/${{ matrix.asset_name }}" -C dist "${{ matrix.built_name }}"
 
       - uses: actions/upload-artifact@v4
         with:
