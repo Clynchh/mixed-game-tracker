@@ -1,7 +1,7 @@
 """Single place the version is defined, so the UI, the database and the
 build all agree on it."""
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 # Bump when a release changes how hands are PARSED (not when the schema
 # changes - new columns are handled automatically). The app compares this
