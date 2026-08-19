@@ -25,6 +25,20 @@
     completely wrong.
   </div>
 
+  <label for="tourn_summary_dir">Tournament summary folder <span class="help" style="font-weight:400;">(optional)</span></label>
+  <input type="text" id="tourn_summary_dir" name="tourn_summary_dir" value="{{ tourn_summary_dir }}"
+         placeholder="/home/corey/.PokerStars/TournSummary/YourUsername">
+  <div class="help">
+    A second, optional folder PokerStars writes one file per tournament to
+    &mdash; usually right next to your hand history folder, with
+    <code>TournSummary</code> in place of <code>HandHistory</code>. When set,
+    it becomes the source of truth for tournament buy-ins, finishing
+    place, and payouts, since PokerStars' own summaries handle re-entries
+    correctly and always know your exact finish, which hand history text
+    alone sometimes doesn't. Leave blank to keep using hand history for
+    tournament results, same as before.
+  </div>
+
   <button type="submit">Save &amp; scan</button>
 </form>
 
@@ -52,13 +66,16 @@
 
 <script>
   function reimportAll() {
+    // The site-wide banner (see base.html) shows the spinner and progress
+    // bar for this and reloads once it's done - this button just needs its
+    // own immediate feedback that the click registered.
     const btn = document.getElementById('reimport-btn');
     const status = document.getElementById('reimport-status');
     btn.disabled = true;
-    status.textContent = 'Reading… this can take a minute for a lot of hands.';
+    status.textContent = 'Starting…';
     fetch('/api/reimport', {method: 'POST'})
       .then((r) => r.json())
-      .then(() => { status.textContent = 'Done.'; setTimeout(() => location.reload(), 700); })
+      .then(() => { status.textContent = 'Reading… this can take a minute for a lot of hands.'; })
       .catch(() => { status.textContent = 'Something went wrong.'; btn.disabled = false; });
   }
 </script>

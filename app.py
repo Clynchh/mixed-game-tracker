@@ -3,11 +3,13 @@ import sys
 import threading
 import time
 import webbrowser
+from datetime import datetime, timedelta
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 
 import db
 import replay
 import support_config
+import tourn_summary
 import version
 import watcher
 
@@ -28,13 +30,105 @@ def _flask_app():
     return Flask(__name__)
 
 
-def _cumsum(values):
-    total = 0.0
-    out = []
-    for v in values:
-        total += v
-        out.append(total)
-    return out
+def _ordinal(n):
+    suffix = "th" if 11 <= n % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+# Betting structure changes what game is actually being played, not just
+# how it's played - No Limit Hold'em and Limit Hold'em are as different
+# from each other as they are from Omaha, so grouping/filtering by
+# game_type alone (which is all "Hold'em" either way) would silently merge
+# them. These are the short names players actually use; anything not
+# listed falls back to "<structure> <game_type>", e.g. "Limit Razz".
+DISPLAY_GAME_SHORT_NAMES = {
+    ("Hold'em", "NL"): "NLHE",
+    ("Hold'em", "PL"): "PLH",
+    ("Omaha", "PL"): "PLO",
+    ("Omaha", "NL"): "NLO",
+    ("Omaha Hi/Lo", "PL"): "PLO8",
+    ("Omaha Hi/Lo", "NL"): "NLO8",
+    ("Omaha Hi/Lo", "FL"): "Limit O8",
+}
+LIMIT_TYPE_PREFIX = {"NL": "No Limit", "PL": "Pot Limit", "FL": "Limit"}
+
+
+def display_game_type(game_type, limit_type):
+    if not game_type:
+        return game_type
+    short = DISPLAY_GAME_SHORT_NAMES.get((game_type, limit_type))
+    if short:
+        return short
+    prefix = LIMIT_TYPE_PREFIX.get(limit_type)
+    return f"{prefix} {game_type}" if prefix else game_type
+
+
+def _duration_minutes(start_iso, end_iso):
+    """Raw minutes between two date_played ISO strings, or 0 if either is
+    missing or unparsable - the numeric twin of _format_duration, so a total
+    row (or client-side recompute after a game-filter change) can sum
+    durations before formatting the sum."""
+    if not start_iso or not end_iso:
+        return 0
+    try:
+        delta = datetime.fromisoformat(end_iso) - datetime.fromisoformat(start_iso)
+    except ValueError:
+        return 0
+    return max(0, round(delta.total_seconds() / 60))
+
+
+def _format_minutes(minutes):
+    """"1h 24m" for a minute count, or "-" for zero/negative (either too
+    short to time, or the pair of timestamps it came from were missing)."""
+    if minutes <= 0:
+        return "—"
+    if minutes < 60:
+        return f"{minutes}m"
+    return f"{minutes // 60}h {minutes % 60}m"
+
+
+def _format_duration(start_iso, end_iso):
+    """"1h 24m" between two date_played ISO strings, or "-" if either is
+    missing or they're the same instant (a single-hand tournament/session -
+    not enough to time)."""
+    return _format_minutes(_duration_minutes(start_iso, end_iso))
+
+
+# A new session starts once this long has passed since the previous hand -
+# cash hand histories carry no explicit session marker, so this is a
+# judgment call standing in for "sat down to play" vs. "same sitting,
+# just a slow hand or two."
+SESSION_GAP = timedelta(minutes=60)
+
+
+def _group_into_sessions(cash_hands, unit):
+    """cash_hands: hero's cash hands, oldest first. Returns one summary dict
+    per session: when it ran, how long, which games, hands played, net."""
+    sessions = []
+    current = None
+    for h in cash_hands:
+        if not h["date_played"]:
+            continue
+        try:
+            played = datetime.fromisoformat(h["date_played"])
+        except ValueError:
+            continue
+        if current is None or played - current["_last"] > SESSION_GAP:
+            current = {
+                "started_at": h["date_played"], "ended_at": h["date_played"], "_last": played,
+                "num_hands": 0, "net": 0.0, "game_types": [],
+            }
+            sessions.append(current)
+        current["ended_at"] = h["date_played"]
+        current["_last"] = played
+        current["num_hands"] += 1
+        current["net"] += (h["hero_net"] / h["big_blind"]) if (unit == "bb" and h["big_blind"]) else h["hero_net"]
+        if h["game_type"] not in current["game_types"]:
+            current["game_types"].append(h["game_type"])
+    sessions.reverse()  # most recent first, matching every other list on the page
+    for s in sessions:
+        del s["_last"]
+    return sessions
 
 app = _flask_app()
 db.init_db()
@@ -56,7 +150,67 @@ def get_username():
     return db.get_setting("hero_username", DEFAULT_USERNAME)
 
 
-fw = watcher.FolderWatcher(get_folder, get_username)
+def get_tourn_summary_dir():
+    return db.get_setting("tourn_summary_dir", "")
+
+
+def suggest_tourn_summary_dir(hand_history_dir):
+    """Tournament Summary files live in a folder that's always a sibling of
+    the hand history one - same PokerStars install, same screen name,
+    "HandHistory" swapped for "TournSummary". Offered as a one-click
+    suggestion in Setup/Settings rather than assumed automatically, so nobody
+    who doesn't want this second data source is surprised by it turning on."""
+    if not hand_history_dir or "HandHistory" not in hand_history_dir:
+        return ""
+    candidate = hand_history_dir.replace("HandHistory", "TournSummary")
+    return candidate if os.path.isdir(candidate) else ""
+
+
+fw = watcher.FolderWatcher(get_folder, get_username, get_tourn_summary_dir)
+
+
+def scan_in_background(folder, username):
+    """Kick off a scan without making the browser wait on it - a first
+    import can be thousands of hands, and blocking the request until it's
+    done would leave the page looking hung the whole time. The UI instead
+    polls /api/scan-status (watcher.SCAN_PROGRESS) for a spinner/progress
+    bar and reloads once it's finished.
+
+    "active" is set here, synchronously, before the request even returns -
+    not left for the background thread to set once it gets around to it.
+    Otherwise the page's first poll can land in the gap before the thread
+    has actually started, see the *previous* scan's finished state, and
+    conclude nothing is happening. The thread's finally block is what
+    guarantees it gets cleared again, however scan_folder exits - including
+    the early "not a real folder" return, which never touches this flag
+    itself.
+
+    If a scan (this app only ever runs one folder, so it's always this same
+    one) is already under way - most likely the periodic background watcher
+    - this is a no-op rather than a second thread racing it: scan_folder()
+    itself would just skip the redundant work via its own lock anyway, but
+    doing nothing here also avoids this thread's own finally clearing
+    "active" the moment IT finishes, while the real scan is still running."""
+    if watcher.SCAN_PROGRESS["active"]:
+        return
+    watcher.SCAN_PROGRESS["active"] = True
+    watcher.SCAN_PROGRESS["done"] = 0
+    watcher.SCAN_PROGRESS["total"] = 0
+
+    def go():
+        try:
+            watcher.scan_folder(folder, hero_username=username)
+            # Quick second pass - authoritative buy-in/finish/payout for any
+            # tournament with a summary file, overriding whatever hand-history
+            # parsing guessed. Runs after so it has the freshly-imported
+            # tournament shells to attach to.
+            tourn_summary.scan_folder(get_tourn_summary_dir(), hero_username=username)
+        except Exception as e:
+            print(f"[app] background scan failed: {e}")
+        finally:
+            watcher.SCAN_PROGRESS["active"] = False
+    threading.Thread(target=go, daemon=True).start()
+
 
 # Quick-tag presets available as hover buttons on any hand row. Order here is
 # the display order (also the hover-button order).
@@ -127,9 +281,9 @@ def reimport():
     Hand rows are rewritten in place; tags and notes are stored separately
     against the hand id, so they come through untouched."""
     db.clear_file_state()
-    n = watcher.scan_folder(get_folder(), hero_username=get_username())
     db.mark_parser_version()
-    return jsonify({"new_hands": n, "ok": True})
+    scan_in_background(get_folder(), get_username())
+    return jsonify({"ok": True})
 
 
 @app.route("/setup")
@@ -167,7 +321,7 @@ def save_setup():
 
     db.set_setting("hand_history_dir", folder)
     db.set_setting("hero_username", username)
-    watcher.scan_folder(folder, hero_username=username)
+    scan_in_background(folder, username)
     return redirect(url_for("dashboard"))
 
 
@@ -192,6 +346,7 @@ PRESET_TAG_DESCRIPTIONS = {
 def dashboard():
     folder = get_folder()
     game_type = request.args.get("game_type") or None
+    limit_type = request.args.get("limit_type") or None
     tag = request.args.get("tag") or None
     search = request.args.get("search") or None
 
@@ -211,39 +366,27 @@ def dashboard():
     # of rows, but the cap has to be visible - otherwise a hand you tagged
     # that falls outside it just looks like it lost its tag.
     show_all = request.args.get("show_all") == "1"
-    hand_filters = dict(game_type=game_type, tag=tag, search=search, is_tournament=is_tournament)
+    hand_filters = dict(game_type=game_type, limit_type=limit_type, tag=tag, search=search, is_tournament=is_tournament)
     matching_hands = db.count_hands(**hand_filters)
     hands = db.list_hands(limit=None if show_all else DASHBOARD_ROW_LIMIT, **hand_filters)
-    stats = db.stats_by_game_type(is_tournament=is_tournament)
+    stats = [
+        {**s, "display": display_game_type(s["game_type"], s["limit_type"])}
+        for s in db.stats_by_game_type(is_tournament=is_tournament)
+    ]
     overall = db.overall_stats(is_tournament=is_tournament)
     tags = db.all_tags(is_tournament=is_tournament)
-    game_types = sorted({s["game_type"] for s in stats})
 
     # Chronological (not the date-desc order the table uses), unlimited, and
     # scoped to whatever filters are active - the graph should show the same
     # slice of hands the table below it does.
-    series_hands = db.list_hands(game_type=game_type, tag=tag, search=search, is_tournament=is_tournament,
-                                  limit=None, sort="date", order="asc")
+    series_hands = db.list_hands(game_type=game_type, limit_type=limit_type, tag=tag, search=search,
+                                  is_tournament=is_tournament, limit=None, sort="date", order="asc")
     if unit == "bb":
         series_hands = [h for h in series_hands if h["big_blind"]]
     hand_values = [
         (h["hero_net"] / h["big_blind"]) if (unit == "bb") else h["hero_net"]
         for h in series_hands
     ]
-    main_cum = _cumsum(hand_values)
-
-    # Showdown/non-showdown split, running cumulative on the same x-axis as
-    # the main line (each only advances on its own hand type, flat otherwise)
-    # so at any point sd_cum[i] + nonsd_cum[i] == main_cum[i].
-    sd_cum, nonsd_cum = [], []
-    sd_running = nonsd_running = 0.0
-    for h, v in zip(series_hands, hand_values):
-        if h["went_to_showdown"]:
-            sd_running += v
-        else:
-            nonsd_running += v
-        sd_cum.append(sd_running)
-        nonsd_cum.append(nonsd_running)
 
     # All-in EV line: same as main, except all-in-before-completion hands use
     # their equity-adjusted result instead of what the runout actually paid,
@@ -252,7 +395,6 @@ def dashboard():
         ((h["ev_net"] / h["big_blind"]) if (unit == "bb") else h["ev_net"]) if h["is_allin_ev"] else v
         for h, v in zip(series_hands, hand_values)
     ]
-    ev_cum = _cumsum(ev_values)
     allin_ev_hands = [h for h in series_hands if h["is_allin_ev"]]
     if unit == "bb":
         ev_luck = sum((h["hero_net"] - h["ev_net"]) / h["big_blind"] for h in allin_ev_hands)
@@ -260,20 +402,24 @@ def dashboard():
         ev_luck = sum((h["hero_net"] - h["ev_net"]) for h in allin_ev_hands)
 
     # Points for the client-side chart: one per hand, carrying the hand_id so
-    # clicking a point looks that hand up, plus a bit of display info for the
-    # hover tooltip so it's clear which hand a given point is before clicking.
+    # clicking a point looks that hand up, plus enough display info for the
+    # hover tooltip and the game checkboxes (which filter and recompute the
+    # cumulative lines in the browser, without a page reload) to work from.
     hand_points = [
         {
             "hand_id": h["hand_id"],
             "date": h["date_played"][:16].replace("T", " ") if h["date_played"] else "",
             "game_type": h["game_type"],
+            "display": display_game_type(h["game_type"], h["limit_type"]),
             "stakes": h["stakes"],
             "delta": round(hand_values[i], 4),
             "ev_delta": round(ev_values[i], 4),
+            # Always bb-scaled regardless of the raw/bb unit toggle above -
+            # the bb/100 banner stat is itself always in bb terms, so it
+            # needs this even when `delta` is showing $ instead.
+            "bb_delta": round(h["hero_net"] / h["big_blind"], 4) if h["big_blind"] else None,
             "is_allin_ev": bool(h["is_allin_ev"]),
             "went_to_showdown": bool(h["went_to_showdown"]),
-            "main": round(main_cum[i], 4), "sd": round(sd_cum[i], 4),
-            "nonsd": round(nonsd_cum[i], 4), "ev": round(ev_cum[i], 4),
         }
         for i, h in enumerate(series_hands)
     ]
@@ -282,31 +428,85 @@ def dashboard():
     tourney_roi = None
     tourney_avg_buyin = None
     tourney_points = []
+    tournament_list = []
+    sessions = []
+    tourney_graph_count = 0
     if mode == "tournament":
         tourney_results = db.tournament_overall()
+
+        # Which games each tournament touched, as the same friendly labels
+        # the game boxes use - a mixed-rotation event touches several, so
+        # they filter both the results graph and the tournaments list
+        # client-side by "played any of these" rather than a per-game split
+        # of a result that isn't actually divisible that way.
+        tourney_games = {}
+        for row in db.tournament_game_types():
+            label = display_game_type(row["game_type"], row["limit_type"])
+            tourney_games.setdefault(row["tournament_id"], set()).add(label)
+
         if tourney_results.get("n"):
             if tourney_results.get("total_buyin"):
                 tourney_roi = (tourney_results["net"] or 0) / tourney_results["total_buyin"] * 100
                 tourney_avg_buyin = tourney_results["total_buyin"] / tourney_results["n"]
-            completed = [t for t in db.tournament_stats(order="asc") if t["finish_place"] is not None]
+            completed = [t for t in db.tournament_stats(order="asc") if t["finished"]]
+            tourney_graph_count = len(completed)
             t_deltas = [(t["net"] or 0) for t in completed]
-            t_cum = _cumsum(t_deltas)
             tourney_points = [
                 {"date": t["date_played"][:16].replace("T", " ") if t["date_played"] else "",
                  "buy_in": t["buy_in"], "finish_place": t["finish_place"],
-                 "delta": round(t_deltas[i], 4), "main": round(t_cum[i], 4)}
+                 "delta": round(t_deltas[i], 4),
+                 "games": sorted(tourney_games.get(t["tournament_id"], ()))}
                 for i, t in enumerate(completed)
             ]
+        tournament_list = [
+            {
+                **t,
+                "duration": _format_duration(t["started_at"], t["ended_at"]),
+                "duration_minutes": _duration_minutes(t["started_at"], t["ended_at"]),
+                # PokerStars doesn't always give an exact place when several
+                # players bust in the same hand - "finished" is still known
+                # even then, so that's not the same as truly still playing.
+                "status": (
+                    _ordinal(t["finish_place"]) if t["finish_place"] is not None
+                    else "busted" if t["finished"]
+                    else "in progress"
+                ),
+                "games": sorted(tourney_games.get(t["tournament_id"], ())),
+            }
+            for t in db.tournament_list()
+        ]
+    else:
+        sessions = [
+            {**s, "duration": _format_duration(s["started_at"], s["ended_at"])}
+            for s in _group_into_sessions(series_hands, unit)
+        ]
+
+    overall_net = overall["net_bb"] if (unit == "bb" and overall.get("net_bb") is not None) else overall["net"]
+
+    # The "Non-NLH" quick-exclude box needs its own hands/net figures (total
+    # minus whatever NLHE contributed) to look and behave like the other
+    # game boxes - there's no single (game_type, limit_type) row for it since
+    # it's everything except one.
+    nlhe_stat = next((s for s in stats if s["display"] == "NLHE"), None)
+    nlhe_hands = nlhe_stat["hands"] if nlhe_stat else 0
+    nlhe_net = 0
+    if nlhe_stat:
+        nlhe_net = nlhe_stat["net_bb"] if (unit == "bb" and nlhe_stat.get("net_bb") is not None) else nlhe_stat["net"]
+    non_nlh_hands = (overall["hands"] or 0) - nlhe_hands
+    non_nlh_net = (overall_net or 0) - (nlhe_net or 0)
 
     return render_template(
         "dashboard.html",
         hands=hands,
         stats=stats,
         overall=overall,
+        overall_net=overall_net,
+        non_nlh_hands=non_nlh_hands,
+        non_nlh_net=non_nlh_net,
         tags=tags,
-        game_types=game_types,
         folder=folder,
         selected_game_type=game_type,
+        selected_limit_type=limit_type,
         selected_tag=tag,
         search=search or "",
         mode=mode,
@@ -319,6 +519,9 @@ def dashboard():
         tourney_roi=tourney_roi,
         tourney_avg_buyin=tourney_avg_buyin,
         tourney_points=tourney_points,
+        tourney_graph_count=tourney_graph_count,
+        tournament_list=tournament_list,
+        sessions=sessions,
         hand_points=hand_points,
         hand_graph_count=len(hand_values),
         allin_ev_count=len(allin_ev_hands),
@@ -349,7 +552,16 @@ def _report_float(name):
 def reports():
     mode = request.args.get("mode") or None
     is_tournament = {"cash": 0, "tournament": 1}.get(mode)
-    game_type = request.args.get("game_type") or None
+    # The game filter dropdown shows/submits the friendly combined name
+    # ("NLHE", "Limit Hold'em") rather than raw game_type, since game_type
+    # alone can't tell No Limit Hold'em from Limit Hold'em - they're really
+    # two different games that happen to share a name. Resolved back to the
+    # (game_type, limit_type) pair the database actually needs here, once,
+    # rather than changing every other link on the page to carry both.
+    game_combos = db.all_game_type_combos(is_tournament=is_tournament)
+    display_to_pair = {display_game_type(gt, lt): (gt, lt) for gt, lt in game_combos}
+    selected_game_type = request.args.get("game_type") or None
+    game_type, limit_type = display_to_pair.get(selected_game_type, (None, None))
     pot_type = request.args.get("pot_type") or None
     tag = request.args.get("tag") or None
     search = request.args.get("search") or None
@@ -370,7 +582,7 @@ def reports():
     vpip_only = request.args.get("vpip") == "1"
 
     filters = dict(
-        game_type=game_type, tag=tag, search=search, is_tournament=is_tournament,
+        game_type=game_type, limit_type=limit_type, tag=tag, search=search, is_tournament=is_tournament,
         pot_type=pot_type, pot_min=pot_min, pot_max=pot_max, net_min=net_min, net_max=net_max,
         vpip=vpip_only,
     )
@@ -403,11 +615,11 @@ def reports():
         summary=summary,
         unit=unit,
         default_unit=default_unit,
-        game_types=db.all_game_types(is_tournament=is_tournament),
+        game_types=sorted(display_to_pair.keys()),
         pot_types=db.all_pot_types(is_tournament=is_tournament),
         tags=db.all_tags(is_tournament=is_tournament),
         mode=mode or "",
-        selected_game_type=game_type,
+        selected_game_type=selected_game_type,
         selected_pot_type=pot_type,
         selected_tag=tag,
         search=search or "",
@@ -468,12 +680,16 @@ def settings():
     if request.method == "POST":
         folder = request.form.get("hand_history_dir", "").strip()
         username = request.form.get("hero_username", "").strip()
+        tourn_summary_dir = request.form.get("tourn_summary_dir", "").strip()
         db.set_setting("hand_history_dir", folder)
         db.set_setting("hero_username", username)
-        watcher.scan_folder(folder, hero_username=username)  # scan immediately so it's not a 15s wait
+        db.set_setting("tourn_summary_dir", tourn_summary_dir)
+        scan_in_background(folder, username)  # scan immediately so it's not a 15s wait
         return redirect(url_for("dashboard"))
-    return render_template("settings.html", folder=get_folder(), username=get_username(),
-                            db_path=db.DB_PATH)
+    return render_template(
+        "settings.html", folder=get_folder(), username=get_username(), db_path=db.DB_PATH,
+        tourn_summary_dir=get_tourn_summary_dir() or suggest_tourn_summary_dir(get_folder()),
+    )
 
 
 @app.route("/api/scan-status")
@@ -483,15 +699,18 @@ def scan_status():
             "last_scan_new": fw.last_scan_new,
             "last_scan_time": fw.last_scan_time,
             "folder": get_folder(),
+            "active": watcher.SCAN_PROGRESS["active"],
+            "done": watcher.SCAN_PROGRESS["done"],
+            "total": watcher.SCAN_PROGRESS["total"],
+            "hands": db.overall_stats()["hands"],
         }
     )
 
 
 @app.route("/api/rescan", methods=["POST"])
 def rescan():
-    folder = get_folder()
-    n = watcher.scan_folder(folder, hero_username=get_username())
-    return jsonify({"new_hands": n})
+    scan_in_background(get_folder(), get_username())
+    return jsonify({"ok": True})
 
 
 def _open_browser_when_ready(url):

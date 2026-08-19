@@ -1,0 +1,72 @@
+name: Build release binaries
+
+# Builds a Windows .exe and a macOS binary whenever a version tag (v1.2.3
+# style) is pushed, then drafts a GitHub Release with both attached.
+# PyInstaller can't cross-compile - a Windows build has to run on a Windows
+# machine and a macOS build on a Mac - which is exactly what the matrix
+# below buys us via GitHub-hosted runners, without needing either OS
+# locally. See RELEASING.md for the full release process, including the
+# manual review/testing steps this workflow doesn't (and can't) replace.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            built_name: MixedGamesTracker.exe
+            asset_name: MixedGamesTracker-windows.exe
+          - os: macos-latest
+            built_name: MixedGamesTracker
+            asset_name: MixedGamesTracker-macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller MixedGamesTracker.spec
+
+      - name: Rename artifact
+        shell: bash
+        run: |
+          mkdir -p out
+          cp "dist/${{ matrix.built_name }}" "out/${{ matrix.asset_name }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: out/${{ matrix.asset_name }}
+          if-no-files-found: error
+
+  draft-release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: artifacts/*

@@ -16,7 +16,14 @@ import re
 
 import equity
 
-SEAT_LINE_RE = re.compile(r"^Seat (\d+): (.+?) \(\$?([\d,.]+) in chips\)", re.MULTILINE)
+# A progressive-bounty tournament's seat line carries extra text after the
+# stack size - "Seat 1: per98 (26615 in chips, $4.90 bounty)" - so the
+# closing paren isn't required to land immediately after "in chips": with
+# it, the whole regex silently failed to match a single seat in any bounty
+# tournament, which made the replayer look broken for the specific games a
+# player happened to have only seen in bounty format, when the real bug had
+# nothing to do with game type at all.
+SEAT_LINE_RE = re.compile(r"^Seat (\d+): (.+?) \(\$?([\d,.]+) in chips[^)]*\)", re.MULTILINE)
 BUTTON_RE = re.compile(r"Seat #(\d+) is the button")
 STREET_RE = re.compile(r"^\*\*\* ([^*]+?) \*\*\*(.*)$")
 DEALT_RE = re.compile(r"^Dealt to (\S+)((?:\s*\[[^\]]*\])+)")
@@ -67,13 +74,13 @@ STUD_CARDS_BY_STREET = {
 # them - the blinds are posted *before* the header and are still live bets
 # once it's passed. Clearing the table on these would forget the blinds and
 # make a later "raises to X" cost the raiser their blind all over again.
-NON_CLEARING_HEADERS = {"hole cards", "pre-draw"}
+NON_CLEARING_HEADERS = {"hole cards", "pre-draw", "dealing hands"}
 
 STREET_LABELS = {
     "hole cards": "Pre-flop", "flop": "Flop", "turn": "Turn", "river": "River",
     "3rd street": "3rd Street", "4th street": "4th Street", "5th street": "5th Street",
     "6th street": "6th Street", "7th street": "7th Street",
-    "pre-draw": "Pre-draw", "first draw": "1st Draw", "second draw": "2nd Draw",
+    "pre-draw": "Pre-draw", "dealing hands": "Pre-draw", "first draw": "1st Draw", "second draw": "2nd Draw",
     "third draw": "3rd Draw", "draw": "Draw", "show down": "Showdown", "summary": "Summary",
 }
 
@@ -226,7 +233,7 @@ def build_replay(raw_text, game_type, hero_name, big_blind=None):
                 for n in names:
                     if not folded[n]:
                         total_cards[n] = n_cards
-            elif key in ("hole cards", "pre-draw"):
+            elif key in ("hole cards", "pre-draw", "dealing hands"):
                 for n in names:
                     total_cards[n] = hole_count
 
@@ -241,6 +248,14 @@ def build_replay(raw_text, game_type, hero_name, big_blind=None):
             if player in known:
                 if len(groups) == 1:
                     known[player] = groups[0].split()
+                elif game_type in DRAW_GAME_TYPES:
+                    # A draw redeal line is self-contained - "[cards kept
+                    # after discarding] [newly dealt replacements]" - not a
+                    # running history the way stud's is, so this replaces
+                    # the hand rather than appending onto what was known
+                    # before, which still included the discarded cards
+                    # (appending gave a 6-card hand after a 1-card draw).
+                    known[player] = groups[0].split() + groups[-1].split()
                 else:
                     known[player] = known[player] + groups[-1].split()
                 if not is_stud:
@@ -310,6 +325,17 @@ def build_replay(raw_text, game_type, hero_name, big_blind=None):
                 flush()
                 if verb == "folds":
                     folded[am.group(1)] = True
+                if verb == "stands pat":
+                    # Single Draw hands print no header between the pre-draw
+                    # and post-draw betting rounds - the discard/stand-pat
+                    # sequence is the only signal that round has ended, so it
+                    # doubles as the "chips in front" reset a header would
+                    # normally do. Harmless for games that DO have a header
+                    # here (Triple Draw's "*** FIRST DRAW ***" etc.) since
+                    # that header already zeroed street_bet before any
+                    # betting or discarding happened in the round.
+                    for n in names:
+                        street_bet[n] = 0.0
                 snapshot(f"{am.group(1)} {verb}", actor=am.group(1))
                 matched = True
                 break
@@ -319,6 +345,8 @@ def build_replay(raw_text, game_type, hero_name, big_blind=None):
         am = DISCARD_RE.match(line)
         if am and am.group(1) in stack:
             flush()
+            for n in names:
+                street_bet[n] = 0.0
             snapshot(f"{am.group(1)} discards {am.group(2)}", actor=am.group(1))
             continue
 

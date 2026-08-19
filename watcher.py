@@ -13,8 +13,23 @@ import glob
 
 import db
 import parser as hh_parser
+import tourn_summary
 
 SCAN_INTERVAL_SECONDS = 15
+
+# Read by the UI (via /api/scan-status) to show a spinner/progress bar while
+# a big first import is running, rather than leaving the page looking stuck
+# for however long a folder full of hand histories takes to read.
+SCAN_PROGRESS = {"active": False, "done": 0, "total": 0}
+
+# The periodic background scan (FolderWatcher, every 15s) and an on-demand
+# one (setup, a folder change, "scan now", "re-read every hand") can land at
+# almost the same moment. Without this, two scan_folder() calls running at
+# once would both reset/increment the same SCAN_PROGRESS dict, corrupting
+# the numbers the progress bar reads. A non-blocking lock means a scan that
+# overlaps an already-running one just no-ops - it would only be re-covering
+# the same files the running one is already about to get to.
+_scan_lock = threading.Lock()
 
 # Where the PokerStars clients keep hand histories. Each regional client
 # (.UK, .EU, .ES ...) installs to its own folder, and inside HandHistory
@@ -62,53 +77,70 @@ def scan_folder(folder, hero_username=None, on_new_hand=None):
     if not folder or not os.path.isdir(folder):
         return 0
 
-    new_count = 0
-    for filepath in glob.glob(os.path.join(folder, "**", "*.txt"), recursive=True):
-        try:
-            stat = os.stat(filepath)
-        except OSError:
-            continue
+    if not _scan_lock.acquire(blocking=False):
+        return 0  # a scan's already running and will cover this folder too
 
-        prev = db.get_file_state(filepath)
-        if prev and prev["mtime"] == stat.st_mtime and prev["size"] == stat.st_size:
-            continue  # unchanged, skip re-parsing
+    files = glob.glob(os.path.join(folder, "**", "*.txt"), recursive=True)
+    SCAN_PROGRESS["active"] = True
+    SCAN_PROGRESS["total"] = len(files)
+    SCAN_PROGRESS["done"] = 0
 
-        try:
-            hands = hh_parser.parse_file(filepath, hero_username=hero_username)
-        except Exception as e:
-            print(f"[watcher] failed to parse {filepath}: {e}")
-            continue
+    try:
+        new_count = 0
+        for filepath in files:
+            try:
+                stat = os.stat(filepath)
+            except OSError:
+                SCAN_PROGRESS["done"] += 1
+                continue
 
-        imported_here = 0
-        for hand in hands:
-            if db.upsert_hand(hand):
-                imported_here += 1
-                new_count += 1
-                if on_new_hand:
-                    on_new_hand(hand)
-            if hand.get("is_tournament") and hand.get("tournament_id"):
-                db.upsert_tournament_shell(
-                    hand["tournament_id"], hand.get("tourney_game_desc"),
-                    hand.get("tourney_buyin"), hand.get("date_played"),
-                )
-                if hand.get("tourney_finish_place") is not None:
-                    db.set_tournament_result(
-                        hand["tournament_id"], hand["tourney_finish_place"], hand.get("tourney_payout"),
+            prev = db.get_file_state(filepath)
+            if prev and prev["mtime"] == stat.st_mtime and prev["size"] == stat.st_size:
+                SCAN_PROGRESS["done"] += 1
+                continue  # unchanged, skip re-parsing
+
+            try:
+                hands = hh_parser.parse_file(filepath, hero_username=hero_username)
+            except Exception as e:
+                print(f"[watcher] failed to parse {filepath}: {e}")
+                SCAN_PROGRESS["done"] += 1
+                continue
+
+            imported_here = 0
+            for hand in hands:
+                if db.upsert_hand(hand):
+                    imported_here += 1
+                    new_count += 1
+                    if on_new_hand:
+                        on_new_hand(hand)
+                if hand.get("is_tournament") and hand.get("tournament_id"):
+                    db.upsert_tournament_shell(
+                        hand["tournament_id"], hand.get("tourney_game_desc"),
+                        hand.get("tourney_buyin"), hand.get("date_played"),
                     )
+                    if hand.get("tourney_finished"):
+                        db.set_tournament_result(
+                            hand["tournament_id"], hand.get("tourney_finish_place"), hand.get("tourney_payout"),
+                        )
 
-        db.set_file_state(filepath, stat.st_mtime, stat.st_size, len(hands))
-        if imported_here:
-            print(f"[watcher] {filepath}: +{imported_here} new hands")
+            db.set_file_state(filepath, stat.st_mtime, stat.st_size, len(hands))
+            if imported_here:
+                print(f"[watcher] {filepath}: +{imported_here} new hands")
+            SCAN_PROGRESS["done"] += 1
 
-    return new_count
+        return new_count
+    finally:
+        SCAN_PROGRESS["active"] = False
+        _scan_lock.release()
 
 
 class FolderWatcher:
     """Runs scan_folder on a background thread every SCAN_INTERVAL_SECONDS."""
 
-    def __init__(self, get_folder_fn, get_username_fn=None):
+    def __init__(self, get_folder_fn, get_username_fn=None, get_tourn_summary_dir_fn=None):
         self.get_folder_fn = get_folder_fn
         self.get_username_fn = get_username_fn
+        self.get_tourn_summary_dir_fn = get_tourn_summary_dir_fn
         self._stop = threading.Event()
         self._thread = None
         self.last_scan_new = 0
@@ -132,6 +164,8 @@ class FolderWatcher:
                     hero_username = self.get_username_fn() if self.get_username_fn else None
                     self.last_scan_new = scan_folder(folder, hero_username=hero_username)
                     self.last_scan_time = time.time()
+                    if self.get_tourn_summary_dir_fn:
+                        tourn_summary.scan_folder(self.get_tourn_summary_dir_fn(), hero_username=hero_username)
                 except Exception as e:
                     print(f"[watcher] scan error: {e}")
             self._stop.wait(SCAN_INTERVAL_SECONDS)

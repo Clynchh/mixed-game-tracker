@@ -4,7 +4,7 @@ import shutil
 import app as flask_app_module
 import db
 
-from conftest import SAMPLE_HANDS_PATH
+from conftest import SAMPLE_HANDS_PATH, wait_for_scan
 
 flask_app = flask_app_module.app
 HERO = "Corey88"
@@ -54,6 +54,7 @@ def test_save_setup_accepts_real_folder_and_scans_it(tmp_path):
     r = client().post("/setup", data={"hand_history_dir": str(tmp_path), "hero_username": HERO})
     assert r.status_code == 302
     assert db.get_setting("hero_username") == HERO
+    wait_for_scan()
     assert db.overall_stats()["hands"] == 7
 
 
@@ -91,6 +92,7 @@ def test_api_reimport_rewrites_hands_but_keeps_tags(tmp_path):
     r = client().post("/api/reimport")
     assert r.status_code == 200
     assert r.get_json()["ok"] is True
+    wait_for_scan()
     assert db.overall_stats()["hands"] == 7
     assert [t["tag"] for t in db.get_hand(hand_id)["tags"]] == ["keep-me"]
 
@@ -105,3 +107,42 @@ def test_reports_and_hand_row_partial_endpoints(tmp_path):
     assert client().get("/reports").status_code == 200
     assert client().get(f"/api/hand/{hand_id}/row").status_code == 200
     assert client().get("/api/hand/does-not-exist/row").status_code == 404
+
+
+def test_scan_status_reflects_a_running_and_finished_import(tmp_path):
+    configure(tmp_path)
+    shutil.copy(SAMPLE_HANDS_PATH, tmp_path / "session1.txt")
+
+    c = client()
+    r = c.post("/api/rescan")
+    assert r.status_code == 200
+    status = c.get("/api/scan-status").get_json()
+    assert {"active", "done", "total", "hands", "last_scan_new", "last_scan_time"} <= status.keys()
+
+    wait_for_scan()
+    status = c.get("/api/scan-status").get_json()
+    assert status["active"] is False
+    assert status["hands"] == 7
+
+
+def test_scan_in_background_sets_active_synchronously_before_returning(tmp_path):
+    # The frontend starts polling as soon as the triggering request comes
+    # back - if "active" weren't set until the background thread actually
+    # got scheduled, a slow scheduler could let the first poll see stale
+    # "not active" state and conclude the scan was already done.
+    import watcher
+    configure(tmp_path)
+    flask_app_module.scan_in_background(str(tmp_path), HERO)
+    assert watcher.SCAN_PROGRESS["active"] is True
+    wait_for_scan()
+    assert watcher.SCAN_PROGRESS["active"] is False
+
+
+def test_scan_in_background_clears_active_even_for_an_invalid_folder():
+    # scan_folder() returns early (without ever touching SCAN_PROGRESS) when
+    # the folder doesn't exist - the caller must still be the one that
+    # guarantees "active" comes back down, or it would get stuck on forever.
+    import watcher
+    flask_app_module.scan_in_background("/definitely/not/a/real/folder", HERO)
+    wait_for_scan()
+    assert watcher.SCAN_PROGRESS["active"] is False

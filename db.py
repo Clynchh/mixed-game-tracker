@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS hands (
     num_players   INTEGER,
     source_file   TEXT,
     raw_text      TEXT,
+    bounty_won    REAL,
     imported_at   TEXT DEFAULT (datetime('now'))
 );
 
@@ -100,6 +101,9 @@ CREATE TABLE IF NOT EXISTS tournaments (
     date_played   TEXT,
     finish_place  INTEGER,
     payout        REAL,
+    finished      INTEGER,
+    entries       INTEGER,
+    summary_source INTEGER,
     updated_at    TEXT DEFAULT (datetime('now'))
 );
 
@@ -122,22 +126,36 @@ def get_conn():
         conn.close()
 
 
-# Columns added after the first release. Existing databases get them added
-# in place on startup, so updating never means starting over.
-_ADDED_COLUMNS = [
-    ("big_blind", "REAL"),
-    ("pot_type", "TEXT"),
-    ("went_to_showdown", "INTEGER"),
-    ("is_allin_ev", "INTEGER"),
-    ("equity_pct", "REAL"),
-    ("ev_net", "REAL"),
-    ("vpip", "INTEGER"),
-]
+# Columns added after the first release, keyed by which table they belong
+# on. Existing databases get them added in place on startup, so updating
+# never means starting over.
+_ADDED_COLUMNS = {
+    "hands": [
+        ("big_blind", "REAL"),
+        ("pot_type", "TEXT"),
+        ("went_to_showdown", "INTEGER"),
+        ("is_allin_ev", "INTEGER"),
+        ("equity_pct", "REAL"),
+        ("ev_net", "REAL"),
+        ("vpip", "INTEGER"),
+        ("bounty_won", "REAL"),
+    ],
+    "tournaments": [
+        ("finished", "INTEGER"),
+        ("entries", "INTEGER"),
+        ("summary_source", "INTEGER"),
+    ],
+}
 
 
 def _pending_migrations(conn):
-    cols = {r["name"] for r in conn.execute("PRAGMA table_info(hands)").fetchall()}
-    return [(name, sql_type) for name, sql_type in _ADDED_COLUMNS if name not in cols]
+    """(table, column, sql_type) for every added column an existing database
+    doesn't have yet."""
+    pending = []
+    for table, columns in _ADDED_COLUMNS.items():
+        cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        pending += [(table, name, sql_type) for name, sql_type in columns if name not in cols]
+    return pending
 
 
 def _backup_database():
@@ -158,8 +176,8 @@ def init_db():
         pending = _pending_migrations(conn)
         if pending:
             _backup_database()
-            for name, sql_type in pending:
-                conn.execute(f"ALTER TABLE hands ADD COLUMN {name} {sql_type}")
+            for table, name, sql_type in pending:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}")
 
 
 def reimport_needed():
@@ -197,11 +215,13 @@ def upsert_hand(hand: dict) -> bool:
                (hand_id, game_type, limit_type, stakes, is_tournament, tournament_id,
                 table_name, date_played, hero_name, hero_cards, hero_invested,
                 hero_collected, hero_net, pot_total, pot_type, went_to_showdown, vpip,
-                is_allin_ev, equity_pct, ev_net, big_blind, num_players, source_file, raw_text)
+                is_allin_ev, equity_pct, ev_net, big_blind, num_players, source_file, raw_text,
+                bounty_won)
                VALUES (:hand_id, :game_type, :limit_type, :stakes, :is_tournament, :tournament_id,
                        :table_name, :date_played, :hero_name, :hero_cards, :hero_invested,
                        :hero_collected, :hero_net, :pot_total, :pot_type, :went_to_showdown, :vpip,
-                       :is_allin_ev, :equity_pct, :ev_net, :big_blind, :num_players, :source_file, :raw_text)
+                       :is_allin_ev, :equity_pct, :ev_net, :big_blind, :num_players, :source_file, :raw_text,
+                       :bounty_won)
                ON CONFLICT(hand_id) DO UPDATE SET
                  game_type=excluded.game_type, limit_type=excluded.limit_type, stakes=excluded.stakes,
                  is_tournament=excluded.is_tournament, tournament_id=excluded.tournament_id,
@@ -211,14 +231,53 @@ def upsert_hand(hand: dict) -> bool:
                  hero_net=excluded.hero_net, pot_total=excluded.pot_total, pot_type=excluded.pot_type,
                  went_to_showdown=excluded.went_to_showdown, vpip=excluded.vpip, is_allin_ev=excluded.is_allin_ev,
                  equity_pct=excluded.equity_pct, ev_net=excluded.ev_net, big_blind=excluded.big_blind,
-                 num_players=excluded.num_players, source_file=excluded.source_file, raw_text=excluded.raw_text""",
+                 num_players=excluded.num_players, source_file=excluded.source_file, raw_text=excluded.raw_text,
+                 bounty_won=excluded.bounty_won""",
             hand,
         )
         return not existed
 
 
 def upsert_tournament_shell(tournament_id, game_desc, buy_in, date_played):
-    """Record a tournament's identity/buy-in the first time we see any hand from it."""
+    """Record a tournament's identity/buy-in the first time we see any hand
+    from it. game_desc is kept fresh on every later hand too (unlike
+    buy_in/date_played, which are only ever set once) - it's cheap to
+    recompute and the cleanup that strips level/stakes clutter off it was
+    added after plenty of existing rows already had the messy version
+    baked in, same as any other parsing improvement. Guarded the same way
+    as everything else here: a Tournament Summary file's name always wins
+    once one's been read for this tournament."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO tournaments (tournament_id, game_desc, buy_in, date_played)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(tournament_id) DO UPDATE SET game_desc=excluded.game_desc
+               WHERE tournaments.summary_source IS NULL OR tournaments.summary_source=0""",
+            (tournament_id, game_desc, buy_in, date_played),
+        )
+
+
+def set_tournament_result(tournament_id, finish_place, payout, finished=True):
+    """Hand-history-derived result. A no-op wherever a Tournament Summary
+    file has already supplied an authoritative one for this tournament -
+    summaries know about re-entries and always carry an exact finish place,
+    which hand-history text alone can't reliably tell (see
+    set_tournament_summary)."""
+    with get_conn() as conn:
+        conn.execute(
+            """UPDATE tournaments SET finish_place=?, payout=?, finished=?, updated_at=datetime('now')
+               WHERE tournament_id=? AND (summary_source IS NULL OR summary_source=0)""",
+            (finish_place, payout, 1 if finished else 0, tournament_id),
+        )
+
+
+def set_tournament_summary(tournament_id, game_desc, date_played, buy_in, entries, finish_place, payout):
+    """Tournament Summary file result - PokerStars' own authoritative
+    record, so this always overwrites (re-reading the same file is
+    idempotent), and marks the row so hand-history parsing no longer
+    touches its buy-in/finish/payout. Bounty cash is deliberately untouched
+    here - summaries don't track it, it stays sourced from hand histories
+    regardless of summary_source."""
     with get_conn() as conn:
         conn.execute(
             """INSERT INTO tournaments (tournament_id, game_desc, buy_in, date_played)
@@ -226,39 +285,98 @@ def upsert_tournament_shell(tournament_id, game_desc, buy_in, date_played):
                ON CONFLICT(tournament_id) DO NOTHING""",
             (tournament_id, game_desc, buy_in, date_played),
         )
-
-
-def set_tournament_result(tournament_id, finish_place, payout):
-    with get_conn() as conn:
         conn.execute(
-            "UPDATE tournaments SET finish_place=?, payout=?, updated_at=datetime('now') WHERE tournament_id=?",
-            (finish_place, payout, tournament_id),
+            """UPDATE tournaments
+               SET game_desc=?, buy_in=?, entries=?, finish_place=?, payout=?, finished=1,
+                   summary_source=1, updated_at=datetime('now')
+               WHERE tournament_id=?""",
+            (game_desc, buy_in, entries, finish_place, payout, tournament_id),
         )
+
+
+# Shared by every query below - the real payout is the recorded prize-pool
+# cashout (from the finish line) plus any progressive-bounty cash won along
+# the way. Bounty cash can land on any hand in the tournament, not just the
+# last one, so it's summed fresh from the hands table rather than tracked
+# as a running total anywhere.
+_BOUNTY_SUBQUERY = """
+    SELECT tournament_id, SUM(bounty_won) as bounty
+    FROM hands WHERE tournament_id IS NOT NULL AND bounty_won > 0
+    GROUP BY tournament_id
+"""
 
 
 def tournament_stats(order="desc"):
     sort_dir = "ASC" if order == "asc" else "DESC"
     with get_conn() as conn:
         rows = conn.execute(
-            f"""SELECT tournament_id, game_desc, buy_in, date_played, finish_place, payout,
-                       (COALESCE(payout, 0) - COALESCE(buy_in, 0)) as net
-                FROM tournaments ORDER BY date_played {sort_dir}"""
+            f"""SELECT t.tournament_id, t.game_desc, t.buy_in, t.date_played, t.finish_place, t.finished,
+                       (COALESCE(t.payout, 0) + COALESCE(b.bounty, 0)) as payout,
+                       (COALESCE(t.payout, 0) + COALESCE(b.bounty, 0) - COALESCE(t.buy_in, 0)) as net
+                FROM tournaments t
+                LEFT JOIN ({_BOUNTY_SUBQUERY}) b ON b.tournament_id = t.tournament_id
+                ORDER BY t.date_played {sort_dir}"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def tournament_game_types():
+    """Distinct (tournament_id, game_type, limit_type) triples - which games
+    were played within each tournament. A mixed-rotation event touches
+    several; this is how the dashboard's game checkboxes know whether a
+    given tournament belongs in a filtered view of the results graph
+    (client-side, since a tournament's buy-in/payout is one result, not
+    something split per game the way a hand's net is)."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT DISTINCT tournament_id, game_type, limit_type FROM hands
+               WHERE tournament_id IS NOT NULL AND game_type IS NOT NULL"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def tournament_list():
+    """One row per tournament for the summary list on the Tournaments tab -
+    buy-in/payout/net plus how long it actually took, timed from the hands
+    themselves (first hand played to last) rather than tournaments.date_played,
+    which is only ever set from whichever hand happened to be scanned first
+    and so isn't reliably the tournament's actual start."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"""SELECT t.tournament_id, t.game_desc, t.buy_in, t.finish_place, t.finished,
+                      (COALESCE(t.payout, 0) + COALESCE(b.bounty, 0)) as payout,
+                      (COALESCE(t.payout, 0) + COALESCE(b.bounty, 0) - COALESCE(t.buy_in, 0)) as net,
+                      s.started_at, s.ended_at, s.num_hands
+               FROM tournaments t
+               JOIN (
+                   SELECT tournament_id, MIN(date_played) as started_at,
+                          MAX(date_played) as ended_at, COUNT(*) as num_hands
+                   FROM hands WHERE tournament_id IS NOT NULL
+                   GROUP BY tournament_id
+               ) s ON s.tournament_id = t.tournament_id
+               LEFT JOIN ({_BOUNTY_SUBQUERY}) b ON b.tournament_id = t.tournament_id
+               ORDER BY s.started_at DESC"""
         ).fetchall()
         return [dict(r) for r in rows]
 
 
 def tournament_overall():
-    """Only counts tournaments with a recorded finish - an in-progress
-    tournament's buy-in isn't a realized loss yet, so it shouldn't drag
-    down ROI/avg-buy-in until it actually finishes."""
+    """Only counts tournaments the hero is actually done playing - an
+    in-progress tournament's buy-in isn't a realized loss yet, so it
+    shouldn't drag down ROI/avg-buy-in until it actually finishes. "Done"
+    means a finish line was seen for them at all (tournaments.finished),
+    whether or not it came with an exact placement - PokerStars sometimes
+    omits the place when several players bust in the same hand."""
     with get_conn() as conn:
         completed = dict(conn.execute(
-            """SELECT COUNT(*) as n,
-                      SUM(buy_in) as total_buyin,
-                      SUM(payout) as total_payout,
-                      SUM(COALESCE(payout, 0) - COALESCE(buy_in, 0)) as net,
-                      SUM(CASE WHEN payout > 0 THEN 1 ELSE 0 END) as itm
-               FROM tournaments WHERE finish_place IS NOT NULL"""
+            f"""SELECT COUNT(*) as n,
+                      SUM(t.buy_in) as total_buyin,
+                      SUM(COALESCE(t.payout, 0) + COALESCE(b.bounty, 0)) as total_payout,
+                      SUM(COALESCE(t.payout, 0) + COALESCE(b.bounty, 0) - COALESCE(t.buy_in, 0)) as net,
+                      SUM(CASE WHEN COALESCE(t.payout, 0) + COALESCE(b.bounty, 0) > 0 THEN 1 ELSE 0 END) as itm
+               FROM tournaments t
+               LEFT JOIN ({_BOUNTY_SUBQUERY}) b ON b.tournament_id = t.tournament_id
+               WHERE t.finished = 1"""
         ).fetchone())
         total_n = conn.execute("SELECT COUNT(*) as n FROM tournaments").fetchone()["n"] or 0
         completed["in_progress"] = total_n - (completed["n"] or 0)
@@ -291,7 +409,7 @@ SORT_COLUMNS = {
 }
 
 
-def _hand_filters(game_type=None, tag=None, date_from=None, date_to=None, search=None,
+def _hand_filters(game_type=None, limit_type=None, tag=None, date_from=None, date_to=None, search=None,
                    is_tournament=None, pot_type=None, pot_min=None, pot_max=None,
                    net_min=None, net_max=None, vpip=None):
     """Shared WHERE/JOIN builder so list_hands and count_hands can't drift
@@ -305,6 +423,12 @@ def _hand_filters(game_type=None, tag=None, date_from=None, date_to=None, search
     if game_type:
         where.append("h.game_type = ?")
         params.append(game_type)
+    if limit_type:
+        # Paired with game_type wherever both are known - "Hold'em" alone
+        # covers NLHE and Limit Hold'em at once, two different games that
+        # happen to share a name; passing this too narrows to just one.
+        where.append("h.limit_type = ?")
+        params.append(limit_type)
     if is_tournament is not None:
         where.append("h.is_tournament = ?")
         params.append(is_tournament)
@@ -379,15 +503,18 @@ def all_pot_types(is_tournament=None):
         return [r["pot_type"] for r in conn.execute(query, params).fetchall()]
 
 
-def all_game_types(is_tournament=None):
-    query = "SELECT DISTINCT game_type FROM hands WHERE game_type IS NOT NULL"
+def all_game_type_combos(is_tournament=None):
+    """Distinct (game_type, limit_type) pairs actually played - e.g. Hold'em
+    shows up twice if both No Limit and Limit hands exist, since those are
+    really two different games that just happen to share a name."""
+    query = "SELECT DISTINCT game_type, limit_type FROM hands WHERE game_type IS NOT NULL"
     params = []
     if is_tournament is not None:
         query += " AND is_tournament = ?"
         params.append(is_tournament)
-    query += " ORDER BY game_type"
+    query += " ORDER BY game_type, limit_type"
     with get_conn() as conn:
-        return [r["game_type"] for r in conn.execute(query, params).fetchall()]
+        return [(r["game_type"], r["limit_type"]) for r in conn.execute(query, params).fetchall()]
 
 
 def pot_net_bounds(is_tournament=None):
@@ -445,7 +572,11 @@ def all_tags(is_tournament=None):
 
 
 def stats_by_game_type(is_tournament=None):
-    query = """SELECT game_type,
+    """One row per (game_type, limit_type) - grouping by game_type alone
+    would silently merge, say, No Limit Hold'em and Limit Hold'em into one
+    "Hold'em" card, hiding that they're really two different games that
+    happen to share a name (same for Omaha/PLO, Omaha Hi/Lo/PLO8, etc.)."""
+    query = """SELECT game_type, limit_type,
                       COUNT(*) as hands,
                       SUM(hero_net) as net,
                       AVG(hero_net) as avg_net,
@@ -457,7 +588,7 @@ def stats_by_game_type(is_tournament=None):
     if is_tournament is not None:
         query += " WHERE is_tournament = ?"
         params.append(is_tournament)
-    query += " GROUP BY game_type ORDER BY hands DESC"
+    query += " GROUP BY game_type, limit_type ORDER BY hands DESC"
     with get_conn() as conn:
         rows = conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]

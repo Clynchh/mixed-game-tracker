@@ -69,12 +69,119 @@ def test_game_types_cover_the_rotation():
     }
 
 
+def test_2_7_draw_games_classified_regardless_of_word_order():
+    # Real PokerStars text is "Triple Draw 2-7 Lowball" / "Single Draw 2-7
+    # Lowball" - reversed from what an earlier, never-verified-against-a-
+    # real-file assumption expected ("2-7 Triple/Single Draw"), so every
+    # draw hand from an actual PokerStars client silently classified as
+    # "Unknown" and the replayer correctly refused to render any of them.
+    real_wording = [
+        ("Triple Draw 2-7 Lowball Limit", "2-7 Triple Draw"),
+        ("Single Draw 2-7 Lowball No Limit", "2-7 Single Draw"),
+        # Either order is accepted, in case some client/format uses the other.
+        ("2-7 Triple Draw Limit", "2-7 Triple Draw"),
+        ("2-7 Single Draw No Limit", "2-7 Single Draw"),
+    ]
+    for desc, expected in real_wording:
+        assert hh_parser._classify(hh_parser.GAME_TYPE_MAP, desc) == expected
+
+
 def test_tournament_hands_flagged_and_cash_hand_is_not():
     hands = {h["hand_id"]: h for h in _parse_sample()}
     assert hands["223344551"]["is_tournament"] == 1
     assert hands["223344551"]["tournament_id"] == "1234567"
     assert hands["223344557"]["is_tournament"] == 0  # the standalone cash hand
     assert hands["223344557"]["tournament_id"] is None
+
+
+def test_tournament_finish_payout_survives_trailing_sentence_period():
+    # PokerStars writes this as a full sentence - "...received $5.40." -
+    # with the period landing right against the amount, no space. A money
+    # regex of [\d,.]+ is greedy enough to swallow that period as part of
+    # the number, and float("5.40.") blows up. Caught from a real hand
+    # history file this app failed to import.
+    with open(SAMPLE_HANDS_PATH, encoding="utf-8") as f:
+        holdem_hand = hh_parser.split_hands(f.read())[0]
+    hand_with_finish = holdem_hand + "\nCorey88 finished the tournament in 5th place and received $5.40.\n"
+    parsed = hh_parser.parse_hand(hand_with_finish, hero_username=HERO)
+    assert parsed["tourney_finish_place"] == 5
+    assert parsed["tourney_payout"] == 5.40
+
+
+def test_finish_line_with_no_place_still_marks_tournament_finished():
+    # Real PokerStars text, seen when several players bust in the same
+    # all-in and the exact order between them isn't resolved in this hand:
+    # just "X finished the tournament", no "in Nth place" at all. Before
+    # this was handled, FINISH_RE simply never matched such a hand, so the
+    # tournament looked like it was still being played indefinitely.
+    with open(SAMPLE_HANDS_PATH, encoding="utf-8") as f:
+        holdem_hand = hh_parser.split_hands(f.read())[0]
+    hand = holdem_hand + "\nCorey88 finished the tournament\n"
+    parsed = hh_parser.parse_hand(hand, hero_username=HERO)
+    assert parsed["tourney_finished"] is True
+    assert parsed["tourney_finish_place"] is None
+    assert parsed["tourney_payout"] == 0.0
+
+
+def test_finish_line_ignores_other_players():
+    with open(SAMPLE_HANDS_PATH, encoding="utf-8") as f:
+        holdem_hand = hh_parser.split_hands(f.read())[0]
+    hand = holdem_hand + "\nVillain1 finished the tournament in 3rd place and received $50.00\n"
+    parsed = hh_parser.parse_hand(hand, hero_username=HERO)
+    assert parsed["tourney_finished"] is False
+    assert parsed["tourney_finish_place"] is None
+
+
+def test_bounty_wins_are_summed_and_scoped_to_hero():
+    # Real PokerStars progressive-knockout text: "X wins $Y for eliminating
+    # Z and their own bounty increases by $Y to $W" - Y is real cash, and
+    # can appear on any hand in the tournament (a hero can even eliminate
+    # more than one player in a single multi-way all-in), not just the
+    # hand that ends the hero's own tournament.
+    with open(SAMPLE_HANDS_PATH, encoding="utf-8") as f:
+        holdem_hand = hh_parser.split_hands(f.read())[0]
+    hand = holdem_hand + (
+        "\nCorey88 wins $7.35 for eliminating Villain1 and their own bounty increases by $7.35 to $12.25"
+        "\nCorey88 wins $2.45 for eliminating Villain2 and their own bounty increases by $2.45 to $14.70"
+        "\nVillain3 wins $3.00 for eliminating Villain4 and their own bounty increases by $3.00 to $9.00\n"
+    )
+    parsed = hh_parser.parse_hand(hand, hero_username=HERO)
+    assert parsed["bounty_won"] == 9.80  # only Corey88's two wins, not Villain3's
+
+
+def test_no_bounty_lines_is_zero_not_none():
+    with open(SAMPLE_HANDS_PATH, encoding="utf-8") as f:
+        holdem_hand = hh_parser.split_hands(f.read())[0]
+    parsed = hh_parser.parse_hand(holdem_hand, hero_username=HERO)
+    assert parsed["bounty_won"] == 0.0
+
+
+# --- tournament name cleanup -------------------------------------------------
+
+def test_clean_tourney_name_strips_specific_game_and_level():
+    # Real examples: the parenthesised part names whichever single game in
+    # the rotation happens to be running at the level the hero busted at -
+    # not the tournament's own identity, so a tournament-level list (like
+    # the Tournaments tab) shouldn't show it next to the tournament's name.
+    cases = [
+        ("$2.40+$2.50+$0.60 USD 8-Game (Triple Draw 2-7 Lowball Limit) - Level XVII (500/1000)", "8-Game"),
+        ("$9.80+$1.20 USD Hold'em No Limit - Level XIV (1500/3000)", "Hold'em No Limit"),
+        ("$50+$5 USD HORSE (7 Card Stud Limit) - Level IX (300/600)", "HORSE"),
+        ("$20.95+$1.05 USD Hold'em No Limit - Level VII (80/160)", "Hold'em No Limit"),
+    ]
+    for raw, expected in cases:
+        assert hh_parser._clean_tourney_name(raw) == expected
+
+
+def test_tourney_game_desc_is_cleaned_for_tournament_hands_only():
+    with open(SAMPLE_HANDS_PATH, encoding="utf-8") as f:
+        text = f.read()
+    hands = hh_parser.split_hands(text)
+    tourney_hand = hh_parser.parse_hand(hands[0], hero_username=HERO)
+    cash_hand = hh_parser.parse_hand(hands[-1], hero_username=HERO)  # the standalone cash hand
+
+    assert tourney_hand["tourney_game_desc"] == "Hold'em No Limit"
+    assert cash_hand["is_tournament"] == 0  # cleanup only applies to tournament hands
 
 
 def test_unparseable_text_yields_no_hands(tmp_path):

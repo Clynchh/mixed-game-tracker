@@ -13,7 +13,7 @@ def _make_hand(hand_id="h1", **overrides):
         hero_invested=10.0, hero_collected=25.0, hero_net=15.0, pot_total=25.0,
         pot_type="Raised (SRP)", went_to_showdown=1, vpip=1, is_allin_ev=0,
         equity_pct=None, ev_net=None, big_blind=2.0, num_players=6,
-        source_file="test.txt", raw_text="PokerStars Hand #1: ...",
+        source_file="test.txt", raw_text="PokerStars Hand #1: ...", bounty_won=0.0,
     )
     hand.update(overrides)
     return hand
@@ -109,12 +109,146 @@ def test_overall_stats_and_stats_by_game_type():
     assert by_game["Omaha"]["hands"] == 1
 
 
+def test_tournament_list_times_from_hands_not_the_tournament_shell():
+    # tournaments.date_played is only ever set from whichever hand happened
+    # to be scanned first (ON CONFLICT DO NOTHING), so it can't be trusted
+    # as the tournament's actual start - tournament_list must time it from
+    # the hands themselves instead.
+    db.upsert_tournament_shell("t1", "Hold'em Tournament", 10.0, "2099-01-01T00:00:00")
+    db.set_tournament_result("t1", 3, 25.0)
+    db.upsert_hand(_make_hand(
+        hand_id="h1", is_tournament=1, tournament_id="t1", date_played="2026-01-01T20:00:00",
+    ))
+    db.upsert_hand(_make_hand(
+        hand_id="h2", is_tournament=1, tournament_id="t1", date_played="2026-01-01T21:30:00",
+    ))
+
+    rows = db.tournament_list()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["started_at"] == "2026-01-01T20:00:00"
+    assert row["ended_at"] == "2026-01-01T21:30:00"
+    assert row["num_hands"] == 2
+    assert row["net"] == 15.0  # 25 payout - 10 buy-in
+    assert row["finish_place"] == 3
+
+
+def test_tournament_game_types_lists_distinct_games_played_per_tournament():
+    # The dashboard's game checkboxes filter the tournament results graph
+    # client-side, by checking whether a tournament touched any selected
+    # game - this is what tells it which games each tournament touched.
+    db.upsert_tournament_shell("t1", "HORSE Tournament", 10.0, "2099-01-01T00:00:00")
+    db.upsert_hand(_make_hand(
+        hand_id="h1", is_tournament=1, tournament_id="t1", game_type="Razz", limit_type="FL",
+    ))
+    db.upsert_hand(_make_hand(
+        hand_id="h2", is_tournament=1, tournament_id="t1", game_type="Hold'em", limit_type="FL",
+    ))
+    # Same (game_type, limit_type) as h2, different hand - shouldn't duplicate.
+    db.upsert_hand(_make_hand(
+        hand_id="h3", is_tournament=1, tournament_id="t1", game_type="Hold'em", limit_type="FL",
+    ))
+
+    combos = {(r["game_type"], r["limit_type"]) for r in db.tournament_game_types()}
+    assert combos == {("Razz", "FL"), ("Hold'em", "FL")}
+
+
+def test_tournament_list_excludes_tournaments_with_no_hands_recorded():
+    # A shell can exist without any of its hands having been imported yet
+    # (or a hand that referenced it got deleted) - nothing to time, so it
+    # shouldn't appear in a list that's fundamentally built around hand data.
+    db.upsert_tournament_shell("t-empty", "Hold'em Tournament", 10.0, "2026-01-01T00:00:00")
+    assert db.tournament_list() == []
+
+
+def test_tournament_payout_includes_bounty_cash_won_across_hands():
+    # Bounty cash can land on any hand in the tournament, not just the one
+    # with the finish line - a hero who knocks people out earlier and
+    # busts later without a min-cash prize still actually won real money.
+    db.upsert_tournament_shell("t1", "KO Tournament", 10.0, "2026-01-01T20:00:00")
+    db.upsert_hand(_make_hand(
+        hand_id="h1", is_tournament=1, tournament_id="t1",
+        date_played="2026-01-01T20:00:00", bounty_won=7.35,
+    ))
+    db.upsert_hand(_make_hand(
+        hand_id="h2", is_tournament=1, tournament_id="t1",
+        date_played="2026-01-01T20:10:00", bounty_won=2.45,
+    ))
+    db.set_tournament_result("t1", None, 0.0)  # busted with no min-cash prize
+
+    row = db.tournament_list()[0]
+    assert row["payout"] == 9.80  # 7.35 + 2.45 bounty, no prize-pool payout
+    assert round(row["net"], 2) == -0.20  # 9.80 payout - 10.00 buy-in
+
+
+def test_tournament_finished_with_no_place_counts_as_completed_not_in_progress():
+    # This is the bug report this was built for: PokerStars omitting the
+    # exact place must not make a tournament the hero is actually done
+    # with look like it's still being played.
+    db.upsert_tournament_shell("t1", "Hold'em Tournament", 10.0, "2026-01-01T20:00:00")
+    db.upsert_hand(_make_hand(
+        hand_id="h1", is_tournament=1, tournament_id="t1", date_played="2026-01-01T20:00:00",
+    ))
+    db.set_tournament_result("t1", None, 0.0, finished=True)
+
+    overall = db.tournament_overall()
+    assert overall["n"] == 1  # counted as completed
+    assert overall["in_progress"] == 0
+
+    row = db.tournament_list()[0]
+    assert row["finished"] == 1
+    assert row["finish_place"] is None
+
+
+def test_tournament_truly_still_playing_is_in_progress():
+    db.upsert_tournament_shell("t1", "Hold'em Tournament", 10.0, "2026-01-01T20:00:00")
+    db.upsert_hand(_make_hand(
+        hand_id="h1", is_tournament=1, tournament_id="t1", date_played="2026-01-01T20:00:00",
+    ))
+    # No set_tournament_result call at all - hero hasn't busted yet.
+
+    overall = db.tournament_overall()
+    assert overall["n"] == 0
+    assert overall["in_progress"] == 1
+
+
+def test_upsert_tournament_shell_refreshes_game_desc_on_rescan():
+    # Real-world case this was built for: existing rows created before a
+    # parsing improvement (stripping level/stakes clutter off the name)
+    # would otherwise keep the messy version forever, since buy_in and
+    # date_played are deliberately only ever set once.
+    db.upsert_tournament_shell("t1", "$50+$5 USD HORSE (Hold'em Limit) - Level I (600/1200)", 55.0, "2026-01-01T00:00:00")
+    db.upsert_tournament_shell("t1", "HORSE", 999.0, "2099-01-01T00:00:00")
+
+    with db.get_conn() as conn:
+        row = conn.execute(
+            "SELECT game_desc, buy_in, date_played FROM tournaments WHERE tournament_id='t1'"
+        ).fetchone()
+    assert row["game_desc"] == "HORSE"  # refreshed
+    assert row["buy_in"] == 55.0  # NOT refreshed - first-seen-wins, as before
+    assert row["date_played"] == "2026-01-01T00:00:00"  # also first-seen-wins
+
+
+def test_upsert_tournament_shell_does_not_override_a_summary_derived_name():
+    db.upsert_tournament_shell("t1", "$4.90+$0.60 USD 8-Game (Triple Draw) - Level I", 5.50, "2026-01-01T00:00:00")
+    db.set_tournament_summary(
+        "t1", game_desc="8-Game", date_played="2026-01-01T00:00:00",
+        buy_in=11.0, entries=2, finish_place=18, payout=5.40,
+    )
+    # A later re-scan of hand histories must not clobber the summary's name.
+    db.upsert_tournament_shell("t1", "$4.90+$0.60 USD 8-Game (Triple Draw) - Level I", 5.50, "2026-01-01T00:00:00")
+
+    with db.get_conn() as conn:
+        row = conn.execute("SELECT game_desc FROM tournaments WHERE tournament_id='t1'").fetchone()
+    assert row["game_desc"] == "8-Game"
+
+
 def test_init_db_is_idempotent():
     db.init_db()
     db.init_db()  # must not error re-creating existing tables/columns
     with db.get_conn() as conn:
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(hands)").fetchall()}
-    for name, _ in db._ADDED_COLUMNS:
+    for name, _ in db._ADDED_COLUMNS["hands"]:
         assert name in cols
 
 
@@ -148,7 +282,7 @@ def test_migration_adds_missing_columns_and_backs_up_first(tmp_path, monkeypatch
     assert (tmp_path / "old_schema.db.bak").exists()  # backed up before altering
     with db.get_conn() as conn:
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(hands)").fetchall()}
-        for name, _ in db._ADDED_COLUMNS:
+        for name, _ in db._ADDED_COLUMNS["hands"]:
             assert name in cols
         row = conn.execute("SELECT hero_net FROM hands WHERE hand_id='old1'").fetchone()
         assert row["hero_net"] == 12.5  # existing data survives the migration

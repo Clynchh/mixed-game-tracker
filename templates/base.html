@@ -32,6 +32,14 @@
       <a href="/settings" class="btn">Re-read now</a>
     </div>
     {% endif %}
+    <div class="update-banner" id="import-banner" style="display:none;">
+      <div>
+        <strong id="import-banner-text">Reading hand histories…</strong>
+        <div class="progress-bar" style="margin:6px 0 0;max-width:none;">
+          <div class="progress-bar-fill" id="import-banner-fill"></div>
+        </div>
+      </div>
+    </div>
     {% block content %}{% endblock %}
   </main>
   <script>
@@ -42,6 +50,36 @@
       fetch(`/hand/${handId}/${action}`, {method: 'POST', body: body})
         .then(() => location.reload());
     }
+
+    // Site-wide, not just the dashboard: setup, a folder change in
+    // Settings, or "scan now" can all kick off an import that takes a
+    // while, and whichever page happens to be loaded when it finishes
+    // shouldn't be left looking like nothing's happening. Checked once on
+    // every page load - near-instant when nothing's running, since
+    // /api/scan-status is a single small request either way.
+    (function () {
+      const banner = document.getElementById('import-banner');
+      const text = document.getElementById('import-banner-text');
+      const fill = document.getElementById('import-banner-fill');
+      let sawActive = false;
+      pollScanStatus((status) => {
+        if (status.active) {
+          sawActive = true;
+          banner.style.display = '';
+          text.textContent = status.total
+            ? `Reading hand histories… ${status.done} of ${status.total} files`
+            : 'Reading hand histories…';
+          fill.style.width = status.total ? `${Math.min(100, (status.done / status.total) * 100)}%` : '0%';
+        } else if (sawActive) {
+          // The dashboard is the one page where finishing means there's
+          // new content to actually show - elsewhere (Settings, a hand's
+          // detail page...) just drop the banner rather than yanking
+          // whatever the user's in the middle of out from under them.
+          if (location.pathname === '/') location.reload();
+          else banner.style.display = 'none';
+        }
+      });
+    })();
   </script>
   {% if kofi_username %}
   <script src="https://storage.ko-fi.com/cdn/scripts/overlay-widget.js"></script>

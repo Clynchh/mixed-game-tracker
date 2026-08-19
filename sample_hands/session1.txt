@@ -165,7 +165,7 @@ Seat 1: Villain1 showed and won (700)
 Seat 2: Corey88 showed and won (350)
 Seat 3: Villain2 folded on the 4th Street
 
-PokerStars Hand #223344556: Tournament #1234567, $10+$1 USD 2-7 Triple Draw Limit - Level VI (80/160) - 2026/07/20 20:25:00 ET
+PokerStars Hand #223344556: Tournament #1234567, $10+$1 USD Triple Draw 2-7 Lowball Limit - Level VI (80/160) - 2026/07/20 20:25:00 ET
 Table '1234567 1' 6-max Seat #2 is the button
 Seat 1: Villain1 (1200 in chips)
 Seat 2: Corey88 (1400 in chips)
@@ -203,30 +203,30 @@ Seat 1: Villain1 (big blind) folded on the Third Draw
 Seat 2: Corey88 (button) collected (840)
 Seat 3: Villain2 (small blind) folded before Draw
 
-PokerStars Hand #223344557: 2-7 Single Draw No Limit ($1.00/$2.00) - 2026/07/22 21:00:00 ET
+PokerStars Hand #223344557: Single Draw 2-7 Lowball No Limit ($1.00/$2.00) - 2026/07/22 21:00:00 ET
 Table 'Kilauea IV' 6-max Seat #4 is the button
 Seat 1: Villain1 ($210.50 in chips)
 Seat 2: Corey88 ($198.00 in chips)
 Seat 3: Villain2 ($240.10 in chips)
 Villain2: posts small blind $1.00
 Villain1: posts big blind $2.00
-*** PRE-DRAW ***
-Dealt to Corey88 [3c 4d 5h 7s 9c]
+*** DEALING HANDS ***
+Dealt to Corey88 [3c 4d 5h 7s Kd]
 Corey88: raises $4.00 to $6.00
 Villain2: folds
 Villain1: calls $4.00
-*** DRAW ***
 Villain1: stands pat
 Corey88: discards 1 card [Kd]
-Villain1: checks
-Corey88: bets $9.00
-Villain1: calls $9.00
+Dealt to Corey88 [3c 4d 5h 7s] [9c]
+Villain1: bets $5.00
+Corey88: raises $5.00 to $10.00
+Villain1: calls $5.00
 *** SHOW DOWN ***
 Corey88: shows [3c 4d 5h 7s 9c] (9-7-5-4-3)
 Villain1: shows [2h 6d 8c Th Jd] (J-T-8-6-2)
-Corey88 collected $31.00 from pot
+Corey88 collected $33.00 from pot
 *** SUMMARY ***
-Total pot $31.00 | Rake $0.00
+Total pot $33.00 | Rake $0.00
 Seat 1: Villain1 (big blind) showed and lost
 Seat 2: Corey88 showed and won ($31.00)
 Seat 3: Villain2 (small blind) folded before Draw

@@ -39,6 +39,16 @@ STREET_HEADER_RE = re.compile(
 # are posted) rather than a boundary BETWEEN two rounds - flushing here would wrongly
 # split a blind post from a raise that happens later in that same round.
 NON_FLUSH_HEADERS = {"hole cards", "pre-draw"}
+
+# Single Draw hands print no header at all between the pre-draw and post-draw
+# betting rounds - only "*** DEALING HANDS ***" appears once, before the
+# pre-draw action, then nothing until "*** SHOW DOWN ***"/"*** SUMMARY ***".
+# The discard/stand-pat sequence is the only signal that round has ended, so
+# it doubles as a flush point. Safe to flush on every line in the sequence
+# (not just the first) - street_total is back to 0 after the first flush, so
+# later discard/stand-pat lines are no-ops.
+DISCARD_RE = re.compile(r"^\S+: discards \d+ card")
+STANDPAT_RE = re.compile(r"^\S+: stands pat")
 # Captures every bracket group on the line - stud/draw games re-deal hero each
 # street as "Dealt to X [previously known] [new card]", and only grabbing the
 # first bracket (as a single-group regex would) misses every card dealt after
@@ -53,41 +63,66 @@ BLIND_SIZE_RE = re.compile(r"\$?([\d,]+(?:\.\d+)?)\s*/\s*\$?([\d,]+(?:\.\d+)?)")
 
 # The big blind a player actually put in. This is the definitive source -
 # it doesn't depend on interpreting the level notation at all.
-BIG_BLIND_POST_RE = re.compile(r"^\S+: posts (?:the )?big blind \$?([\d,.]+)", re.MULTILINE)
+BIG_BLIND_POST_RE = re.compile(r"^\S+: posts (?:the )?big blind \$?([\d,]+(?:\.\d+)?)", re.MULTILINE)
 
 # Tournament buy-in, e.g. "$50+$5" (buy-in + fee) or "$50+$5+$5" (+bounty) at the
 # very start of the game description. Free/satellite tournaments with no $ prefix
 # won't match, which is fine - buy_in stays unknown rather than wrong.
-BUYIN_RE = re.compile(r"^\$([\d,.]+(?:\+\$[\d,.]+)*)")
+BUYIN_RE = re.compile(r"^\$([\d,]+(?:\.\d+)?(?:\+\$[\d,]+(?:\.\d+)?)*)")
+
+# Pulls just the tournament's own name - "8-Game", "HORSE", "Hold'em No
+# Limit" - out of the full game_desc string, e.g. "$2.40+$2.50+$0.60 USD
+# 8-Game (Triple Draw 2-7 Lowball Limit) - Level XVII (500/1000)". The
+# parenthesised part names whichever single game in the rotation happens to
+# be running at the level the hero busted at - not the tournament's
+# identity, and not worth showing next to it on a tournament-level list.
+TOURNEY_NAME_RE = re.compile(r"^(?:\$[\d,.]+(?:\+\$[\d,.]+)*\s+(?:[A-Z]{3}\s+)?)?(.+?)(?:\s*\(|\s*-\s*Level\b|$)")
+
+
+def _clean_tourney_name(game_desc):
+    m = TOURNEY_NAME_RE.match(game_desc)
+    return m.group(1).strip() if m else game_desc
 
 # Tournament elimination/finish line, e.g. "clynchh finished the tournament in 76th
-# place" or "... in 1st place and received $110.00".
+# place" or "... in 1st place and received $110.00". The "in Nth place" part
+# is itself optional - PokerStars sometimes writes just "X finished the
+# tournament" with no place at all, seen in real hand histories when several
+# players bust in the same all-in and the exact order between them isn't
+# resolved in this hand's text. That still means the hand ended the
+# tournament for X, just without knowing exactly where they placed.
 FINISH_RE = re.compile(
-    r"^(\S+) finished the tournament in (\d+)\w{2} place(?:,? and received \$([\d,.]+))?",
+    r"^(\S+) finished the tournament(?: in (\d+)\w{2} place)?(?:,? and received \$([\d,]+(?:\.\d+)?))?",
     re.MULTILINE,
 )
+
+# Progressive knockout bounty payout, e.g. "clynchh wins $7.35 for eliminating
+# pot2steal? and their own bounty increases by $7.35 to $12.25" - real cash,
+# separate from the chip pot for the hand, and can happen on any hand in the
+# tournament (not just the last one), so it's summed hand-by-hand rather than
+# read off a single summary line the way the finish payout is.
+BOUNTY_WIN_RE = re.compile(r"^(\S+) wins \$([\d,]+(?:\.\d+)?) for eliminating", re.MULTILINE)
 
 # Money-moving action patterns: (regex, mode) where mode is
 # 'add'  -> add amount to current street total
 # 'set'  -> current street total becomes amount (raises/completes "to X")
 # 'immediate' -> add straight to invested regardless of street tracking (antes/blinds/bring-in-set below handled separately)
 ACTION_PATTERNS = [
-    (re.compile(r"^(\S+): posts the ante \$?([\d,.]+)"), "immediate"),
-    (re.compile(r"^(\S+): posts ante \$?([\d,.]+)"), "immediate"),
-    (re.compile(r"^(\S+): posts small blind \$?([\d,.]+)"), "add"),
-    (re.compile(r"^(\S+): posts the small blind \$?([\d,.]+)"), "add"),
-    (re.compile(r"^(\S+): posts big blind \$?([\d,.]+)"), "add"),
-    (re.compile(r"^(\S+): posts the big blind \$?([\d,.]+)"), "add"),
-    (re.compile(r"^(\S+): brings[- ]in for \$?([\d,.]+)"), "set"),
-    (re.compile(r"^(\S+): completes it to \$?([\d,.]+)"), "set"),
-    (re.compile(r"^(\S+): bets \$?([\d,.]+)"), "add"),
-    (re.compile(r"^(\S+): calls \$?([\d,.]+)"), "add"),
-    (re.compile(r"^(\S+): raises \$?[\d,.]+ to \$?([\d,.]+)"), "set_captured2"),
+    (re.compile(r"^(\S+): posts the ante \$?([\d,]+(?:\.\d+)?)"), "immediate"),
+    (re.compile(r"^(\S+): posts ante \$?([\d,]+(?:\.\d+)?)"), "immediate"),
+    (re.compile(r"^(\S+): posts small blind \$?([\d,]+(?:\.\d+)?)"), "add"),
+    (re.compile(r"^(\S+): posts the small blind \$?([\d,]+(?:\.\d+)?)"), "add"),
+    (re.compile(r"^(\S+): posts big blind \$?([\d,]+(?:\.\d+)?)"), "add"),
+    (re.compile(r"^(\S+): posts the big blind \$?([\d,]+(?:\.\d+)?)"), "add"),
+    (re.compile(r"^(\S+): brings[- ]in for \$?([\d,]+(?:\.\d+)?)"), "set"),
+    (re.compile(r"^(\S+): completes it to \$?([\d,]+(?:\.\d+)?)"), "set"),
+    (re.compile(r"^(\S+): bets \$?([\d,]+(?:\.\d+)?)"), "add"),
+    (re.compile(r"^(\S+): calls \$?([\d,]+(?:\.\d+)?)"), "add"),
+    (re.compile(r"^(\S+): raises \$?[\d,]+(?:\.\d+)? to \$?([\d,]+(?:\.\d+)?)"), "set_captured2"),
 ]
 
-COLLECTED_RE = re.compile(r"^(\S+) collected \$?([\d,.]+) from")
-UNCALLED_RE = re.compile(r"^Uncalled bet \(\$?([\d,.]+)\) returned to (\S+)")
-POT_TOTAL_RE = re.compile(r"^Total pot \$?([\d,.]+)")
+COLLECTED_RE = re.compile(r"^(\S+) collected \$?([\d,]+(?:\.\d+)?) from")
+UNCALLED_RE = re.compile(r"^Uncalled bet \(\$?([\d,]+(?:\.\d+)?)\) returned to (\S+)")
+POT_TOTAL_RE = re.compile(r"^Total pot \$?([\d,]+(?:\.\d+)?)")
 SEAT_COUNT_RE = re.compile(r"^Seat \d+:")
 SHOWDOWN_RE = re.compile(r"^\*\*\* SHOW DOWN \*\*\*", re.MULTILINE)
 
@@ -116,9 +151,9 @@ FLOP_STREET_BOARD_CARDS = {"hole cards": 0, "flop": 3, "turn": 4, "river": 5}
 # ("completed"/open-equivalent), 2 raises = bet 3 ("3-bet"), etc. - same
 # counting flop games use with the big blind as bet 1.
 RAISE_ACTION_RE = re.compile(
-    r"^(\S+): (?:raises \$?[\d,.]+ to \$?[\d,.]+|completes it to \$?[\d,.]+)", re.MULTILINE
+    r"^(\S+): (?:raises \$?[\d,]+(?:\.\d+)? to \$?[\d,]+(?:\.\d+)?|completes it to \$?[\d,]+(?:\.\d+)?)", re.MULTILINE
 )
-CALL_ACTION_RE = re.compile(r"^(\S+): calls \$?[\d,.]+", re.MULTILINE)
+CALL_ACTION_RE = re.compile(r"^(\S+): calls \$?[\d,]+(?:\.\d+)?", re.MULTILINE)
 STUD_GAME_TYPES = {"Razz", "Stud", "Stud Hi/Lo"}
 
 GAME_TYPE_MAP = [
@@ -128,8 +163,14 @@ GAME_TYPE_MAP = [
     (re.compile(r"7 Card Stud", re.I), "Stud"),
     (re.compile(r"Omaha Hi/Lo|Omaha H/L|Omaha8", re.I), "Omaha Hi/Lo"),
     (re.compile(r"Omaha", re.I), "Omaha"),
-    (re.compile(r"2-7 Triple Draw", re.I), "2-7 Triple Draw"),
-    (re.compile(r"2-7 Single Draw", re.I), "2-7 Single Draw"),
+    # Real PokerStars text is "Triple Draw 2-7 Lowball" / "Single Draw 2-7
+    # Lowball" - reversed from what the earlier "2-7 Triple/Single Draw"
+    # patterns expected, so those never matched a single real hand and
+    # every draw hand silently fell through to "Unknown" (which the
+    # replayer correctly refuses to render, making them look unsupported
+    # rather than just misclassified). Matches either order.
+    (re.compile(r"Triple Draw 2-7|2-7 Triple Draw", re.I), "2-7 Triple Draw"),
+    (re.compile(r"Single Draw 2-7|2-7 Single Draw", re.I), "2-7 Single Draw"),
     (re.compile(r"Badugi", re.I), "Badugi"),
     (re.compile(r"5 Card Draw", re.I), "5 Card Draw"),
     (re.compile(r"Hold'?em", re.I), "Hold'em"),
@@ -296,6 +337,10 @@ def _compute_money(text, hero_name):
         if sh:
             if sh.group(1).lower() not in NON_FLUSH_HEADERS:
                 flush()
+            continue
+
+        if DISCARD_RE.match(line) or STANDPAT_RE.match(line):
+            flush()
             continue
 
         m = UNCALLED_RE.match(line)
@@ -531,13 +576,20 @@ def parse_hand(raw_text, source_file="", hero_username=None):
 
     allin_ev = compute_allin_ev(raw_text, game_type, hero_name, hero_cards, went_to_showdown, pot_total)
 
+    tourney_finished = False
     tourney_finish_place = None
     tourney_payout = None
+    tourney_bounty_won = 0.0
     if tourney_id and hero_name:
         fm = FINISH_RE.search(raw_text)
         if fm and fm.group(1) == hero_name:
-            tourney_finish_place = int(fm.group(2))
+            tourney_finished = True
+            if fm.group(2):
+                tourney_finish_place = int(fm.group(2))
             tourney_payout = _parse_money(fm.group(3)) if fm.group(3) else 0.0
+        tourney_bounty_won = sum(
+            _parse_money(amt) for name, amt in BOUNTY_WIN_RE.findall(raw_text) if name == hero_name
+        )
 
     return {
         "hand_id": hand_id,
@@ -564,10 +616,12 @@ def parse_hand(raw_text, source_file="", hero_username=None):
         "num_players": len(seats),
         "source_file": source_file,
         "raw_text": raw_text,
-        "tourney_game_desc": game_desc,
+        "tourney_game_desc": _clean_tourney_name(game_desc) if tourney_id else game_desc,
         "tourney_buyin": tourney_buyin,
+        "tourney_finished": tourney_finished,
         "tourney_finish_place": tourney_finish_place,
         "tourney_payout": tourney_payout,
+        "bounty_won": round(tourney_bounty_won, 4),
     }
 
 

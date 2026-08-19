@@ -9,6 +9,7 @@ time, so this happens at module load, before pytest collects any tests.
 import os
 import sys
 import tempfile
+import time
 
 import pytest
 
@@ -32,6 +33,17 @@ SAMPLE_HANDS_PATH = os.path.join(
 def sample_hands_text():
     with open(SAMPLE_HANDS_PATH, encoding="utf-8", errors="replace") as f:
         return f.read()
+
+
+def wait_for_scan(timeout=5.0):
+    """Routes that trigger a scan (setup, settings, rescan, reimport) hand
+    it off to a background thread rather than blocking the request - tests
+    that need the import to have actually finished before asserting on the
+    database wait for watcher.SCAN_PROGRESS to go quiet again."""
+    import watcher
+    deadline = time.time() + timeout
+    while watcher.SCAN_PROGRESS["active"] and time.time() < deadline:
+        time.sleep(0.02)
 
 
 @pytest.fixture(autouse=True)

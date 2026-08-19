@@ -2,6 +2,32 @@
 {% from "_macros.html" import tag_cell, hand_row %}
 {% block title %}Dashboard · Mixed Games Tracker{% endblock %}
 
+{% macro game_filter() %}
+{% if stats|length > 1 %}
+<div class="graph-game-filter" id="graph-game-filter">
+  <div class="graph-filter-head">
+    <span class="graph-filter-label">Games in graphs &amp; tournament list</span>
+    <button type="button" class="btn-ghost" id="game-filter-reset">Reset</button>
+  </div>
+  <div class="stats-row">
+    {% for s in stats %}
+    {% set s_net = s.net_bb if (unit == 'bb' and s.net_bb is not none) else s.net %}
+    <div class="stat-card game-filter-box" data-game="{{ s.display }}">
+      <div class="label">{{ s.display }}</div>
+      <div class="value">{{ s.hands }}</div>
+      <div class="sub {{ 'pos' if (s_net or 0) >= 0 else 'neg' }}">{{ '%.2f'|format(s_net or 0) }}</div>
+    </div>
+    {% endfor %}
+    <div class="stat-card game-filter-box" id="game-filter-non-nlh">
+      <div class="label">Non-NLH</div>
+      <div class="value">{{ non_nlh_hands }}</div>
+      <div class="sub {{ 'pos' if (non_nlh_net or 0) >= 0 else 'neg' }}">{{ '%.2f'|format(non_nlh_net or 0) }}</div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endmacro %}
+
 {% block header_meta %}
   {% if folder %}
     <span>watching <code>{{ folder }}</code></span>
@@ -43,47 +69,40 @@
       </a>
     </div>
     <div class="unit-toggle">
-      <a href="{{ url_for('dashboard', mode=mode, game_type=selected_game_type, tag=selected_tag, unit='raw') }}"
+      <a href="{{ url_for('dashboard', mode=mode, game_type=selected_game_type, limit_type=selected_limit_type, tag=selected_tag, unit='raw') }}"
          class="unit-opt {{ 'active' if unit == 'raw' }}">{{ '$' if mode == 'cash' else 'chips' }}</a>
-      <a href="{{ url_for('dashboard', mode=mode, game_type=selected_game_type, tag=selected_tag, unit='bb') }}"
+      <a href="{{ url_for('dashboard', mode=mode, game_type=selected_game_type, limit_type=selected_limit_type, tag=selected_tag, unit='bb') }}"
          class="unit-opt {{ 'active' if unit == 'bb' }}">BB</a>
     </div>
+    {% if mode == 'tournament' %}
+    <div class="unit-toggle" id="tourney-unit-toggle" title="A $50 and a $5 tournament count the same in buy-in terms, instead of the $50 one dominating the numbers.">
+      <button type="button" class="unit-opt active" id="tourney-unit-usd">$</button>
+      <button type="button" class="unit-opt" id="tourney-unit-bi">Buy-ins</button>
+    </div>
+    {% endif %}
   </div>
 
   {% if mode == 'tournament' and tourney_results and tourney_results.n %}
   <div class="overall-banner tourney-banner">
-    <div><span class="big {{ 'pos' if (tourney_results.net or 0) >= 0 else 'neg' }}">{{ '%.2f'|format(tourney_results.net or 0) }}</span> <span class="lbl">$ result</span></div>
-    <div><span class="big">{{ '%.1f'|format(tourney_roi) if tourney_roi is not none else 'n/a' }}%</span> <span class="lbl">roi</span></div>
-    <div><span class="big">{{ '%.2f'|format(tourney_avg_buyin) if tourney_avg_buyin is not none else 'n/a' }}</span> <span class="lbl">avg buy-in</span></div>
-    <div><span class="big">{{ '%.2f'|format(tourney_results.total_buyin or 0) }}</span> <span class="lbl">buy-ins</span></div>
-    <div><span class="big">{{ '%.2f'|format(tourney_results.total_payout or 0) }}</span> <span class="lbl">cashes</span></div>
-    <div><span class="big">{{ tourney_results.itm or 0 }}/{{ tourney_results.n }}</span> <span class="lbl">itm</span></div>
-    {% if tourney_results.in_progress %}<div><span class="big">{{ tourney_results.in_progress }}</span> <span class="lbl">in progress</span></div>{% endif %}
+    <div><span class="big" id="tourney-net-value">{{ '%.2f'|format(tourney_results.net or 0) }}</span> <span class="lbl" id="tourney-net-label">$ result</span></div>
+    <div><span class="big" id="tourney-roi-value">{{ '%.1f'|format(tourney_roi) if tourney_roi is not none else 'n/a' }}%</span> <span class="lbl" id="tourney-roi-label">roi</span></div>
+    <div><span class="big" id="tourney-avgbuyin-value">{{ '%.2f'|format(tourney_avg_buyin) if tourney_avg_buyin is not none else 'n/a' }}</span> <span class="lbl">avg buy-in</span></div>
+    <div><span class="big" id="tourney-buyins-value">{{ '%.2f'|format(tourney_results.total_buyin or 0) }}</span> <span class="lbl">buy-ins</span></div>
+    <div><span class="big" id="tourney-cashes-value">{{ '%.2f'|format(tourney_results.total_payout or 0) }}</span> <span class="lbl">cashes</span></div>
+    <div><span class="big" id="tourney-itm-value">{{ tourney_results.itm or 0 }}/{{ tourney_results.n }}</span> <span class="lbl">itm</span></div>
+    <div id="tourney-inprogress-block" style="display:{{ 'none' if not tourney_results.in_progress }};">
+      <span class="big" id="tourney-inprogress-value">{{ tourney_results.in_progress }}</span> <span class="lbl">in progress</span>
+    </div>
   </div>
   <div class="chart-card">
     <div class="chart-head">
-      <span class="chart-title">Tournament results ($, cumulative)</span>
-      <span class="chart-sub">{{ tourney_results.n }} completed &middot; drag to zoom</span>
+      <span class="chart-title" id="tourney-chart-title">Tournament results ($, cumulative)</span>
+      <span class="chart-sub"><span id="tourney-graph-count">{{ tourney_graph_count }}</span> completed &middot; drag to zoom</span>
     </div>
     {% if tourney_points %}
     <div id="tourney-graph-container"></div>
-    <script>
-      new LineChart(
-        document.getElementById('tourney-graph-container'),
-        {{ tourney_points|tojson }},
-        [{ key: 'main', color: '#5fae6e', width: 2.5 }],
-        {
-          tooltipHtml: function (p, idx) {
-            const cls = p.delta >= 0 ? 'pos' : 'neg';
-            const buyIn = p.buy_in != null ? p.buy_in.toFixed(2) : 'n/a';
-            const place = p.finish_place != null ? ordinal(p.finish_place) : '?';
-            return `<div class="tt-title">#${idx + 1} &middot; ${escapeHtml(p.date)}</div>
-                    <div class="tt-dim">buy-in ${buyIn} &middot; finished ${place}</div>
-                    <div class="${cls}">${fmtSigned(p.delta)}</div>`;
-          },
-        }
-      );
-    </script>
+    <div class="chart-empty" id="tourney-chart-empty" style="display:none;">No tournaments match the selected games.</div>
+    <script>window.TOURNEY_POINTS = {{ tourney_points|tojson }};</script>
     {% else %}<div class="chart-empty">Not enough completed tournaments yet.</div>{% endif %}
   </div>
   {% elif mode == 'tournament' %}
@@ -92,21 +111,81 @@
   </div>
   {% endif %}
 
-  {% set overall_net = overall.net_bb if (unit == 'bb' and overall.net_bb is not none) else overall.net %}
+  {% if mode == 'tournament' and tournament_list %}
+  <div class="chart-head" style="margin-top:4px;">
+    <span class="chart-title">Tournaments</span>
+    <span class="chart-sub"><span id="tournament-list-count">{{ tournament_list|length }}</span> played &middot; most recent 20 shown</span>
+  </div>
+  <div id="tournament-list-wrap">
+    <table class="hands" style="margin-bottom:22px;">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Game</th>
+          <th>Buy-in</th>
+          <th>Cashout</th>
+          <th id="tournament-list-net-header">Net</th>
+          <th>Finish</th>
+          <th>Duration</th>
+          <th>Hands</th>
+        </tr>
+      </thead>
+      <tbody id="tournament-list-tbody"></tbody>
+      <tfoot>
+        <tr id="tournament-list-totals" class="totals-row"></tr>
+      </tfoot>
+    </table>
+  </div>
+  <div class="chart-empty" id="tournament-list-empty" style="display:none;margin-bottom:22px;">No tournaments match the selected games.</div>
+  <script>window.TOURNAMENT_LIST = {{ tournament_list|tojson }};</script>
+  {% endif %}
+
+  {% if mode == 'cash' and sessions %}
+  <div class="chart-head" style="margin-top:4px;">
+    <span class="chart-title">Sessions</span>
+    <span class="chart-sub">{{ sessions|length }} sessions</span>
+  </div>
+  <table class="hands" style="margin-bottom:22px;">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Games</th>
+        <th>Duration</th>
+        <th>Hands</th>
+        <th>Net</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in sessions %}
+      <tr>
+        <td>{{ s.started_at[:16].replace('T', ' ') if s.started_at else '' }}</td>
+        <td class="game">{{ s.game_types|join(', ') }}</td>
+        <td>{{ s.duration }}</td>
+        <td>{{ s.num_hands }}</td>
+        <td class="{{ 'pos' if s.net >= 0 else 'neg' }}">{{ '%+.2f'|format(s.net) }}{{ ' bb' if unit == 'bb' else '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {{ game_filter() }}
+
   {% set net_label = 'net (cash, $)' if mode == 'cash' else 'in-hand chip net (not $ result)' %}
   <div class="overall-banner">
-    <div><span class="big {{ 'pos' if (overall_net or 0) >= 0 else 'neg' }}">{{ '%.2f'|format(overall_net or 0) }}{{ ' bb' if unit == 'bb' and overall.net_bb is not none else '' }}</span> <span class="lbl">{{ net_label }}</span></div>
-    <div><span class="big">{{ overall.hands }}</span> <span class="lbl">hands tracked</span></div>
-    <div><span class="big">{{ '%.2f'|format(overall.bb_per_100) if overall.bb_per_100 is not none else 'n/a' }}</span> <span class="lbl">bb/100</span></div>
-    {% if allin_ev_count %}
-    <div><span class="big {{ 'pos' if ev_luck >= 0 else 'neg' }}">{{ '%+.2f'|format(ev_luck) }}{{ ' bb' if unit == 'bb' else '' }}</span> <span class="lbl">all-in luck ({{ allin_ev_count }})</span></div>
-    {% endif %}
+    <div><span class="big" id="overall-net-value">{{ '%.2f'|format(overall_net or 0) }}{{ ' bb' if unit == 'bb' and overall.net_bb is not none else '' }}</span> <span class="lbl">{{ net_label }}</span></div>
+    <div><span class="big" id="overall-hands-value">{{ overall.hands }}</span> <span class="lbl">hands tracked</span></div>
+    <div><span class="big" id="overall-bb100-value">{{ '%.2f'|format(overall.bb_per_100) if overall.bb_per_100 is not none else 'n/a' }}</span> <span class="lbl">bb/100</span></div>
+    <div id="overall-allin-luck-block" style="display:{{ 'none' if not allin_ev_count }};">
+      <span class="big" id="overall-allin-luck-value">{{ '%+.2f'|format(ev_luck) }}{{ ' bb' if unit == 'bb' else '' }}</span>
+      <span class="lbl">all-in luck (<span id="overall-allin-luck-count">{{ allin_ev_count }}</span>)</span>
+    </div>
   </div>
 
   <div class="chart-card">
     <div class="chart-head">
       <span class="chart-title">Hands graph ({{ 'BB' if unit == 'bb' else ('$' if mode == 'cash' else 'chips') }}, cumulative)</span>
-      <span class="chart-sub">{{ hand_graph_count }} hands &middot; drag to zoom &middot; click a point to pin that hand</span>
+      <span class="chart-sub"><span id="hand-graph-count">{{ hand_graph_count }}</span> hands &middot; drag to zoom &middot; click a point to pin that hand</span>
     </div>
     {% if hand_points %}
     <div id="hand-graph-container"></div>
@@ -116,70 +195,9 @@
       <span><i style="background:#c0564f"></i>without showdown</span>
       <span><i style="background:#d9b23a"></i>all-in EV-adjusted</span>
     </div>
-    <script>
-      new LineChart(
-        document.getElementById('hand-graph-container'),
-        {{ hand_points|tojson }},
-        [
-          { key: 'nonsd', color: '#c0564f', width: 1.5 },
-          { key: 'sd', color: '#4a90d9', width: 1.5 },
-          { key: 'ev', color: '#d9b23a', width: 1.5 },
-          { key: 'main', color: '#5fae6e', width: 2.5 },
-        ],
-        {
-          onPointClick: function (p) { selectHandFromGraph(p.hand_id, '{{ unit }}'); },
-          tooltipHtml: function (p, idx) {
-            const cls = p.delta >= 0 ? 'pos' : 'neg';
-            const unitSuffix = '{{ " bb" if unit == "bb" else "" }}';
-            const row = (color, label, val) =>
-              `<div class="tt-row"><i style="background:${color}"></i><span class="tt-label">${label}</span><span class="tt-val">${fmtSigned(val)}${unitSuffix}</span></div>`;
-
-            // Running total: where each of the 4 lines actually is at this
-            // point in the graph.
-            const totalRows =
-              row('#5fae6e', 'total', p.main) +
-              row('#d9b23a', 'all-in EV-adj', p.ev) +
-              row('#4a90d9', 'with showdown', p.sd) +
-              row('#c0564f', 'without showdown', p.nonsd);
-
-            // This hand alone - only show a line if it actually applies to
-            // this hand. An all-in EV row on a hand with no all-in is just
-            // noise, and a hand can only ever be one of showdown /
-            // no-showdown, not both.
-            let handRows = '';
-            if (p.is_allin_ev) handRows += row('#d9b23a', 'all-in EV-adj', p.ev_delta);
-            handRows += p.went_to_showdown
-              ? row('#4a90d9', 'with showdown', p.delta)
-              : row('#c0564f', 'without showdown', p.delta);
-
-            return `<div class="tt-title">#${idx + 1} &middot; ${escapeHtml(p.date)}</div>
-                    <div class="tt-dim">${escapeHtml(p.game_type)} &middot; ${escapeHtml(p.stakes)}</div>
-                    <div class="tt-section-label">running total</div>
-                    <div class="tt-rows">${totalRows}</div>
-                    <div class="tt-section-label">this hand <span class="${cls}">${fmtSigned(p.delta)}${unitSuffix}</span></div>
-                    <div class="tt-rows">${handRows}</div>`;
-          },
-        }
-      );
-    </script>
+    <div class="chart-empty" id="hand-chart-empty" style="display:none;">No hands match the selected games.</div>
+    <script>window.HAND_POINTS = {{ hand_points|tojson }};</script>
     {% else %}<div class="chart-empty">No hands to graph yet.</div>{% endif %}
-  </div>
-
-  <div class="stats-row">
-    <a href="{{ url_for('dashboard', tag=selected_tag, mode=mode, unit=unit) }}" class="stat-card {{ 'active' if not selected_game_type }}" style="text-decoration:none;color:inherit;">
-      <div class="label">All games</div>
-      <div class="value">{{ overall.hands }}</div>
-      <div class="sub {{ 'pos' if (overall_net or 0) >= 0 else 'neg' }}">{{ '%.2f'|format(overall_net or 0) }}</div>
-    </a>
-    {% for s in stats %}
-    {% set s_net = s.net_bb if (unit == 'bb' and s.net_bb is not none) else s.net %}
-    <a href="{{ url_for('dashboard', game_type=s.game_type, tag=selected_tag, mode=mode, unit=unit) }}"
-       class="stat-card {{ 'active' if selected_game_type == s.game_type }}" style="text-decoration:none;color:inherit;">
-      <div class="label">{{ s.game_type }}</div>
-      <div class="value">{{ s.hands }}</div>
-      <div class="sub {{ 'pos' if (s_net or 0) >= 0 else 'neg' }}">{{ '%.2f'|format(s_net or 0) }}</div>
-    </a>
-    {% endfor %}
   </div>
 
   {% if stats %}
@@ -187,6 +205,7 @@
     <input type="hidden" name="mode" value="{{ mode }}">
     <input type="hidden" name="unit" value="{{ unit }}">
     {% if selected_game_type %}<input type="hidden" name="game_type" value="{{ selected_game_type }}">{% endif %}
+    {% if selected_limit_type %}<input type="hidden" name="limit_type" value="{{ selected_limit_type }}">{% endif %}
     <input type="text" name="search" placeholder="search raw hand text..." value="{{ search }}">
     <select name="tag">
       <option value="">all tags</option>
@@ -223,7 +242,7 @@
   {% if hands|length < matching_hands %}
   <div class="list-footer">
     Showing the {{ hands|length }} most recent of {{ matching_hands }} matching hands.
-    <a href="{{ url_for('dashboard', mode=mode, unit=unit, game_type=selected_game_type, tag=selected_tag, search=search or none, show_all='1') }}">Show all {{ matching_hands }}</a>
+    <a href="{{ url_for('dashboard', mode=mode, unit=unit, game_type=selected_game_type, limit_type=selected_limit_type, tag=selected_tag, search=search or none, show_all='1') }}">Show all {{ matching_hands }}</a>
   </div>
   {% elif show_all and matching_hands %}
   <div class="list-footer">Showing all {{ matching_hands }} matching hands.</div>
@@ -238,7 +257,390 @@
 
 <script>
 function rescanNow() {
-  fetch('/api/rescan', {method: 'POST'}).then(() => location.reload());
+  // The site-wide banner in the page header (see base.html) picks up and
+  // displays this scan's progress and reloads the page once it's done -
+  // /api/rescan itself now only kicks the scan off in the background and
+  // returns right away, so there's nothing further to do here.
+  fetch('/api/rescan', {method: 'POST'});
 }
+
+// Game boxes filter both dashboard graphs entirely in the browser - no page
+// reload per click. Clicking toggles a box's "active" class (any number can
+// be active at once); the server sends every hand/tournament point once,
+// and each render just recomputes the cumulative lines over whichever
+// subset is currently active and rebuilds the two charts from that.
+(function () {
+  const UNIT = '{{ unit }}';
+  const UNIT_SUFFIX = '{{ " bb" if unit == "bb" else "" }}';
+
+  // 'usd' or 'bi' (buy-ins) - a $50 and a $5 tournament each count as 1
+  // buy-in in the latter, instead of the $50 one dominating the numbers.
+  // Client-side only (resets on reload), same as the game boxes.
+  let tourneyUnit = 'usd';
+
+  function selectedGames() {
+    const boxes = Array.from(document.querySelectorAll('.game-filter-box[data-game]'));
+    const active = boxes.filter((b) => b.classList.contains('active')).map((b) => b.dataset.game);
+    return active.length ? new Set(active) : null; // null = no filter, show all
+  }
+
+  function excludeNlh() {
+    const box = document.getElementById('game-filter-non-nlh');
+    return !!(box && box.classList.contains('active'));
+  }
+
+  function round4(v) {
+    return Math.round(v * 10000) / 10000;
+  }
+
+  // Shared by the hands graph and its banner above, so both agree on
+  // exactly which hands the current game selection includes.
+  function filterHandPoints() {
+    const selected = selectedGames();
+    const noNlh = excludeNlh();
+    return (window.HAND_POINTS || []).filter((p) => {
+      if (selected && !selected.has(p.display)) return false;
+      if (noNlh && p.display === 'NLHE') return false;
+      return true;
+    });
+  }
+
+  // Shared by the tournament results graph, the tournament list, and the
+  // banner above the graph - all three key off the same per-tournament
+  // "games" list (which games were played within it).
+  function filterGameList(list) {
+    const selected = selectedGames();
+    const noNlh = excludeNlh();
+    return (list || []).filter((t) => {
+      const games = t.games || [];
+      if (selected && !games.some((g) => selected.has(g))) return false;
+      if (noNlh && games.includes('NLHE')) return false;
+      return true;
+    });
+  }
+
+  function updateHandsBanner(points) {
+    const netEl = document.getElementById('overall-net-value');
+    if (!netEl) return;
+    const handsEl = document.getElementById('overall-hands-value');
+    const bb100El = document.getElementById('overall-bb100-value');
+    const allinBlock = document.getElementById('overall-allin-luck-block');
+    const allinValueEl = document.getElementById('overall-allin-luck-value');
+    const allinCountEl = document.getElementById('overall-allin-luck-count');
+
+    const net = points.reduce((a, p) => a + p.delta, 0);
+    netEl.textContent = net.toFixed(2) + UNIT_SUFFIX;
+    netEl.className = 'big ' + (net >= 0 ? 'pos' : 'neg');
+    if (handsEl) handsEl.textContent = points.length;
+
+    const bbPoints = points.filter((p) => p.bb_delta != null);
+    const netBb = bbPoints.reduce((a, p) => a + p.bb_delta, 0);
+    const bb100 = bbPoints.length ? (netBb / bbPoints.length) * 100 : null;
+    if (bb100El) bb100El.textContent = bb100 != null ? bb100.toFixed(2) : 'n/a';
+
+    const allinPoints = points.filter((p) => p.is_allin_ev);
+    const evLuck = points.reduce((a, p) => a + (p.delta - p.ev_delta), 0);
+    if (allinBlock) allinBlock.style.display = allinPoints.length ? '' : 'none';
+    if (allinValueEl) {
+      allinValueEl.textContent = fmtSigned(evLuck) + UNIT_SUFFIX;
+      allinValueEl.className = 'big ' + (evLuck >= 0 ? 'pos' : 'neg');
+    }
+    if (allinCountEl) allinCountEl.textContent = allinPoints.length;
+  }
+
+  function updateTourneyBanner(rows) {
+    const netEl = document.getElementById('tourney-net-value');
+    if (!netEl) return;
+    const netLabelEl = document.getElementById('tourney-net-label');
+    const roiEl = document.getElementById('tourney-roi-value');
+    const roiLabelEl = document.getElementById('tourney-roi-label');
+    const avgBuyinEl = document.getElementById('tourney-avgbuyin-value');
+    const buyinsEl = document.getElementById('tourney-buyins-value');
+    const cashesEl = document.getElementById('tourney-cashes-value');
+    const itmEl = document.getElementById('tourney-itm-value');
+    const inProgBlock = document.getElementById('tourney-inprogress-block');
+    const inProgEl = document.getElementById('tourney-inprogress-value');
+
+    const completed = rows.filter((t) => t.finished);
+    const inProgress = rows.length - completed.length;
+    let totalBuyin = 0, totalPayout = 0, net = 0, itm = 0;
+    // Buy-in total is equal-weighted (sum of net/buy_in per tournament) -
+    // distinct from totalBuyin/totalPayout below, which stay in real
+    // dollars regardless of unit since "how much you've staked/won back"
+    // is dollar fact, not a result to normalize.
+    let biTotal = 0, biCount = 0;
+    completed.forEach((t) => {
+      totalBuyin += t.buy_in || 0;
+      totalPayout += t.payout || 0;
+      net += t.net || 0;
+      if ((t.payout || 0) > 0) itm++;
+      if (t.buy_in) {
+        biTotal += t.net / t.buy_in;
+        biCount++;
+      }
+    });
+    const roi = totalBuyin ? (net / totalBuyin) * 100 : null;
+    const avgBuyin = completed.length ? totalBuyin / completed.length : null;
+    const avgBi = biCount ? biTotal / biCount : null;
+
+    if (tourneyUnit === 'bi') {
+      if (netLabelEl) netLabelEl.textContent = 'BI result';
+      netEl.textContent = fmtSigned(biTotal);
+      netEl.className = 'big ' + (biTotal >= 0 ? 'pos' : 'neg');
+      if (roiLabelEl) roiLabelEl.textContent = 'avg BI/tourney';
+      if (roiEl) roiEl.textContent = avgBi != null ? fmtSigned(avgBi) : 'n/a';
+    } else {
+      if (netLabelEl) netLabelEl.textContent = '$ result';
+      netEl.textContent = net.toFixed(2);
+      netEl.className = 'big ' + (net >= 0 ? 'pos' : 'neg');
+      if (roiLabelEl) roiLabelEl.textContent = 'roi';
+      if (roiEl) roiEl.textContent = (roi != null ? roi.toFixed(1) : 'n/a') + '%';
+    }
+    if (avgBuyinEl) avgBuyinEl.textContent = avgBuyin != null ? avgBuyin.toFixed(2) : 'n/a';
+    if (buyinsEl) buyinsEl.textContent = totalBuyin.toFixed(2);
+    if (cashesEl) cashesEl.textContent = totalPayout.toFixed(2);
+    if (itmEl) itmEl.textContent = `${itm}/${completed.length}`;
+    if (inProgBlock) inProgBlock.style.display = inProgress ? '' : 'none';
+    if (inProgEl) inProgEl.textContent = inProgress;
+  }
+
+  function renderHandChart(points) {
+    const container = document.getElementById('hand-graph-container');
+    if (!container) return;
+    const empty = document.getElementById('hand-chart-empty');
+    const countEl = document.getElementById('hand-graph-count');
+    if (countEl) countEl.textContent = points.length;
+
+    if (points.length === 0) {
+      container.style.display = 'none';
+      if (empty) empty.style.display = '';
+      return;
+    }
+    container.style.display = '';
+    if (empty) empty.style.display = 'none';
+
+    let main = 0, sd = 0, nonsd = 0, ev = 0;
+    const lined = points.map((p) => {
+      main += p.delta;
+      ev += p.ev_delta;
+      if (p.went_to_showdown) sd += p.delta; else nonsd += p.delta;
+      return Object.assign({}, p, { main: round4(main), sd: round4(sd), nonsd: round4(nonsd), ev: round4(ev) });
+    });
+
+    new LineChart(
+      container,
+      lined,
+      [
+        { key: 'nonsd', color: '#c0564f', width: 1.5 },
+        { key: 'sd', color: '#4a90d9', width: 1.5 },
+        { key: 'ev', color: '#d9b23a', width: 1.5, markKey: 'is_allin_ev' },
+        { key: 'main', color: '#5fae6e', width: 2.5 },
+      ],
+      {
+        onPointClick: function (p) { selectHandFromGraph(p.hand_id, UNIT); },
+        tooltipHtml: function (p, idx) {
+          const cls = p.delta >= 0 ? 'pos' : 'neg';
+          const row = (color, label, val) =>
+            `<div class="tt-row"><i style="background:${color}"></i><span class="tt-label">${label}</span><span class="tt-val">${fmtSigned(val)}${UNIT_SUFFIX}</span></div>`;
+
+          const totalRows =
+            row('#5fae6e', 'total', p.main) +
+            row('#d9b23a', 'all-in EV-adj', p.ev) +
+            row('#4a90d9', 'with showdown', p.sd) +
+            row('#c0564f', 'without showdown', p.nonsd);
+
+          let handRows = '';
+          if (p.is_allin_ev) handRows += row('#d9b23a', 'all-in EV-adj', p.ev_delta);
+          handRows += p.went_to_showdown
+            ? row('#4a90d9', 'with showdown', p.delta)
+            : row('#c0564f', 'without showdown', p.delta);
+
+          return `<div class="tt-title">#${idx + 1} &middot; ${escapeHtml(p.date)}</div>
+                  <div class="tt-dim">${escapeHtml(p.game_type)} &middot; ${escapeHtml(p.stakes)}</div>
+                  <div class="tt-section-label">running total</div>
+                  <div class="tt-rows">${totalRows}</div>
+                  <div class="tt-section-label">this hand <span class="${cls}">${fmtSigned(p.delta)}${UNIT_SUFFIX}</span></div>
+                  <div class="tt-rows">${handRows}</div>`;
+        },
+      }
+    );
+  }
+
+  // Buy-in terms: each tournament's own result divided by its own buy-in,
+  // so a $50 and a $5 tournament each move the number by the same amount
+  // for the same relative result, instead of the $50 one dominating it.
+  // Tournaments with no known buy-in can't be expressed this way - they
+  // contribute 0 rather than skewing the total.
+  function biDelta(t) {
+    // TOURNEY_POINTS rows carry the result as `delta`, TOURNAMENT_LIST rows
+    // as `net` - same dollar concept, different field name in each payload.
+    const dollarNet = t.delta != null ? t.delta : t.net;
+    return t.buy_in ? dollarNet / t.buy_in : 0;
+  }
+
+  function renderTourneyChart(points) {
+    const container = document.getElementById('tourney-graph-container');
+    if (!container) return;
+    const empty = document.getElementById('tourney-chart-empty');
+    const countEl = document.getElementById('tourney-graph-count');
+    const titleEl = document.getElementById('tourney-chart-title');
+    if (countEl) countEl.textContent = points.length;
+    if (titleEl) {
+      titleEl.textContent = tourneyUnit === 'bi'
+        ? 'Tournament results (buy-ins, cumulative)'
+        : 'Tournament results ($, cumulative)';
+    }
+
+    if (points.length === 0) {
+      container.style.display = 'none';
+      if (empty) empty.style.display = '';
+      return;
+    }
+    container.style.display = '';
+    if (empty) empty.style.display = 'none';
+
+    let main = 0;
+    const lined = points.map((t) => {
+      const d = tourneyUnit === 'bi' ? biDelta(t) : t.delta;
+      main += d;
+      return Object.assign({}, t, { main: round4(main), _d: d });
+    });
+
+    const suffix = tourneyUnit === 'bi' ? ' BI' : '';
+    new LineChart(
+      container,
+      lined,
+      [{ key: 'main', color: '#5fae6e', width: 2.5 }],
+      {
+        yAxisSuffix: suffix,
+        tooltipHtml: function (p, idx) {
+          const cls = p._d >= 0 ? 'pos' : 'neg';
+          const buyIn = p.buy_in != null ? p.buy_in.toFixed(2) : 'n/a';
+          const place = p.finish_place != null ? ordinal(p.finish_place) : '?';
+          return `<div class="tt-title">#${idx + 1} &middot; ${escapeHtml(p.date)}</div>
+                  <div class="tt-dim">buy-in ${buyIn} &middot; finished ${place}</div>
+                  <div class="${cls}">${fmtSigned(p._d)}${suffix}</div>`;
+        },
+      }
+    );
+  }
+
+  const TOURNAMENT_LIST_ROW_LIMIT = 20;
+
+  function formatMinutes(m) {
+    if (m <= 0) return '—';
+    if (m < 60) return `${m}m`;
+    return `${Math.floor(m / 60)}h ${m % 60}m`;
+  }
+
+  function renderTournamentList(filtered) {
+    const tbody = document.getElementById('tournament-list-tbody');
+    if (!tbody) return;
+    const wrap = document.getElementById('tournament-list-wrap');
+    const empty = document.getElementById('tournament-list-empty');
+    const countEl = document.getElementById('tournament-list-count');
+    const totalsRow = document.getElementById('tournament-list-totals');
+    const netHeaderEl = document.getElementById('tournament-list-net-header');
+    if (netHeaderEl) netHeaderEl.textContent = tourneyUnit === 'bi' ? 'Net (BI)' : 'Net';
+    if (countEl) countEl.textContent = filtered.length;
+
+    if (filtered.length === 0) {
+      if (wrap) wrap.style.display = 'none';
+      if (empty) empty.style.display = '';
+      return;
+    }
+    if (wrap) wrap.style.display = '';
+    if (empty) empty.style.display = 'none';
+
+    const visible = filtered.slice(0, TOURNAMENT_LIST_ROW_LIMIT);
+    tbody.innerHTML = visible.map((t) => {
+      const buyIn = t.buy_in != null ? t.buy_in.toFixed(2) : '—';
+      const payout = t.payout != null ? t.payout.toFixed(2) : '—';
+      const date = t.started_at ? escapeHtml(t.started_at.slice(0, 16).replace('T', ' ')) : '';
+      const netVal = tourneyUnit === 'bi' ? biDelta(t) : t.net;
+      const netStr = tourneyUnit === 'bi' && !t.buy_in ? 'n/a' : fmtSigned(netVal);
+      return `<tr>
+        <td>${date}</td>
+        <td class="game">${escapeHtml(t.game_desc || '')}</td>
+        <td>${buyIn}</td>
+        <td>${payout}</td>
+        <td class="${netVal >= 0 ? 'pos' : 'neg'}">${netStr}</td>
+        <td>${escapeHtml(t.status)}</td>
+        <td>${escapeHtml(t.duration)}</td>
+        <td>${t.num_hands}</td>
+      </tr>`;
+    }).join('');
+
+    // Totals cover every tournament matching the current filter, not just
+    // the 20 shown above - the row limit is a display cap, not a filter.
+    let totBuyIn = 0, totPayout = 0, totNet = 0, totBi = 0, totHands = 0, totMinutes = 0;
+    filtered.forEach((t) => {
+      totBuyIn += t.buy_in || 0;
+      totPayout += t.payout || 0;
+      totNet += t.net || 0;
+      totBi += biDelta(t);
+      totHands += t.num_hands || 0;
+      totMinutes += t.duration_minutes || 0;
+    });
+    const totNetVal = tourneyUnit === 'bi' ? totBi : totNet;
+    if (totalsRow) {
+      totalsRow.innerHTML = `
+        <td>Total</td>
+        <td class="game">${filtered.length} tournament${filtered.length === 1 ? '' : 's'}</td>
+        <td>${totBuyIn.toFixed(2)}</td>
+        <td>${totPayout.toFixed(2)}</td>
+        <td class="${totNetVal >= 0 ? 'pos' : 'neg'}">${fmtSigned(totNetVal)}</td>
+        <td></td>
+        <td>${formatMinutes(totMinutes)}</td>
+        <td>${totHands}</td>
+      `;
+    }
+  }
+
+  function renderAll() {
+    const handPoints = filterHandPoints();
+    renderHandChart(handPoints);
+    updateHandsBanner(handPoints);
+
+    renderTourneyChart(filterGameList(window.TOURNEY_POINTS));
+
+    const tournamentRows = filterGameList(window.TOURNAMENT_LIST);
+    renderTournamentList(tournamentRows);
+    updateTourneyBanner(tournamentRows);
+  }
+
+  document.querySelectorAll('.game-filter-box').forEach((box) => {
+    box.addEventListener('click', () => {
+      box.classList.toggle('active');
+      renderAll();
+    });
+  });
+  const resetBtn = document.getElementById('game-filter-reset');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      document.querySelectorAll('.game-filter-box').forEach((box) => box.classList.remove('active'));
+      renderAll();
+    });
+  }
+
+  const tourneyUnitUsdBtn = document.getElementById('tourney-unit-usd');
+  const tourneyUnitBiBtn = document.getElementById('tourney-unit-bi');
+  if (tourneyUnitUsdBtn && tourneyUnitBiBtn) {
+    tourneyUnitUsdBtn.addEventListener('click', () => {
+      tourneyUnit = 'usd';
+      tourneyUnitUsdBtn.classList.add('active');
+      tourneyUnitBiBtn.classList.remove('active');
+      renderAll();
+    });
+    tourneyUnitBiBtn.addEventListener('click', () => {
+      tourneyUnit = 'bi';
+      tourneyUnitBiBtn.classList.add('active');
+      tourneyUnitUsdBtn.classList.remove('active');
+      renderAll();
+    });
+  }
+
+  renderAll();
+})();
 </script>
 {% endblock %}
