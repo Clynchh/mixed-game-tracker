@@ -6,6 +6,15 @@
   <span>{{ total }} hands match{% if total > shown %} &middot; showing first {{ shown }}{% endif %}</span>
 {% endblock %}
 
+{% macro stat(value, denom, suffix='%', fmt='%.1f') -%}
+  {%- if value is none -%}
+    <span class="stat-na" title="no hands to measure this against">&ndash;</span>
+  {%- else -%}
+    <span class="{{ 'low-sample' if denom < min_sample }}"
+          title="{{ denom }} hand{{ '' if denom == 1 else 's' }}{{ ' - too few to read much into' if denom < min_sample }}">{{ fmt|format(value) }}{{ suffix }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
 {% macro sort_link(col, label) -%}
   {% set next_order = 'asc' if (sort == col and order == 'desc') else 'desc' %}
   <a href="{{ url_for('reports', mode=mode, game_type=selected_game_type, pot_type=selected_pot_type, tag=selected_tag, search=search, pot_min=pot_min, pot_max=pot_max, net_min=net_min, net_max=net_max, vpip=('1' if vpip_only else none), unit=unit, sort=col, order=next_order) }}"
@@ -99,11 +108,138 @@
 <div class="overall-banner">
   <div><span class="big {{ 'pos' if net_display >= 0 else 'neg' }}">{{ '%.2f'|format(net_display) }}{{ ' bb' if unit == 'bb' else '' }}</span> <span class="lbl">net</span></div>
   <div><span class="big">{{ summary.count }}</span> <span class="lbl">hands</span></div>
-  <div><span class="big">{{ '%.1f'|format(summary.win_rate) }}%</span> <span class="lbl">won</span></div>
+  <div><span class="big">{{ stat(summary.win_rate, summary.hands) }}</span> <span class="lbl">won</span></div>
   <div><span class="big">{{ '%.2f'|format(avg_pot_display) }}{{ ' bb' if unit == 'bb' else '' }}</span> <span class="lbl">avg pot</span></div>
   <div><span class="big">{{ '%.2f'|format(summary.bb_per_100) if summary.bb_per_100 is not none else 'n/a' }}</span> <span class="lbl">bb/100</span></div>
 </div>
 
+{# Stats hero actually plays by, as opposed to how the money came out.
+   Definitions are in the tooltips because half the point of a stats page is
+   knowing what the denominator was. #}
+<div class="overall-banner stat-strip">
+  <div><span class="big">{{ stat(summary.vpip_pct, summary.hands) }}</span>
+       <span class="lbl" title="Voluntarily put money in the pot: hero called, bet or raised in the opening round. Posting a blind or ante doesn't count.">VPIP</span></div>
+  <div><span class="big">{{ stat(summary.pfr_pct, summary.hands) }}</span>
+       <span class="lbl" title="Raised the opening round - preflop in a flop game, and completing in stud, which is the open-raise there.">PFR</span></div>
+  <div><span class="big">{{ stat(summary.wwsf_pct, summary.wwsf_n) }}</span>
+       <span class="lbl" title="Won when saw flop: of the hands where hero was still in for the second betting round, how often hero won chips.">WWSF</span></div>
+  <div><span class="big">{{ stat(summary.wtsd_pct, summary.wtsd_n) }}</span>
+       <span class="lbl" title="Went to showdown: of the hands that got past the opening round, how often hero reached a showdown.">WTSD</span></div>
+  <div><span class="big">{{ stat(summary.wsd_pct, summary.wsd_n) }}</span>
+       <span class="lbl" title="Won money at showdown: of the showdowns hero reached, how often hero won chips.">W$SD</span></div>
+  <div><span class="big">{{ stat(summary.aggression, summary.hands, suffix='', fmt='%.2f') }}</span>
+       <span class="lbl" title="Aggression factor: bets and raises divided by calls, after the opening round. Undefined with no calls.">AF</span></div>
+</div>
+
+<div class="tabs-row" style="margin-bottom:0;">
+  <div class="mode-tabs">
+    {% for key, label in breakdowns %}
+    <a href="{{ url_for('reports', **dict(report_args, breakdown=key)) }}"
+       class="mode-tab {{ 'active' if breakdown_by == key }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+{% macro stat_table(rows, heading) %}
+<table class="hands stats-table">
+  <thead>
+    <tr>
+      <th>{{ heading }}</th>
+      <th class="num">Hands</th>
+      <th class="num">Net</th>
+      <th class="num" title="Big blinds won per 100 hands. Only counts hands with a known big blind.">bb/100</th>
+      <th class="num">VPIP</th>
+      <th class="num">PFR</th>
+      <th class="num" title="Won when hero got past the opening round">WWSF</th>
+      <th class="num" title="Went to showdown">WTSD</th>
+      <th class="num" title="Won money at showdown">W$SD</th>
+      <th class="num" title="Aggression factor">AF</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    {% set row_net = r.net_bb if unit == 'bb' else r.net %}
+    <tr>
+      <td class="game">{{ r.label }}</td>
+      <td class="num">{{ r.hands }}</td>
+      <td class="num {{ 'pos' if row_net >= 0 else 'neg' }}">{{ '%.2f'|format(row_net) }}{{ ' bb' if unit == 'bb' else '' }}</td>
+      <td class="num {{ 'pos' if (r.bb_per_100 or 0) >= 0 else 'neg' }}">{{ stat(r.bb_per_100, r.bb_hands, suffix='', fmt='%.2f') }}</td>
+      <td class="num">{{ stat(r.vpip_pct, r.hands) }}</td>
+      <td class="num">{{ stat(r.pfr_pct, r.hands) }}</td>
+      <td class="num">{{ stat(r.wwsf_pct, r.wwsf_n) }}</td>
+      <td class="num">{{ stat(r.wtsd_pct, r.wtsd_n) }}</td>
+      <td class="num">{{ stat(r.wsd_pct, r.wsd_n) }}</td>
+      <td class="num">{{ stat(r.aggression, r.calls_n, suffix='', fmt='%.2f') }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endmacro %}
+
+{% if breakdown_by == 'street' %}
+  {% if funnel %}
+    {% for fam in funnel %}
+    <h4 class="breakdown-subhead">{{ fam.family_label }} <span>{{ fam.hands }} hands</span></h4>
+    <table class="hands stats-table">
+      <thead>
+        <tr>
+          <th>Reached</th>
+          <th class="num" title="Hands where hero was still in when this round began. Folding on a street still counts it - hero saw the cards and made a decision.">Hands</th>
+          <th class="num" title="Share of this family's hands that got this far">% of hands</th>
+          <th class="num" title="Of the hands that got this far, how often hero won chips">Won</th>
+          <th class="num" title="Of the hands that got this far, how often hero went on to a showdown">To showdown</th>
+          <th class="num">Net</th>
+          <th class="num">bb/100</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in fam.rows %}
+        {% set row_net = r.net_bb if unit == 'bb' else r.net %}
+        <tr>
+          <td class="game">{{ r.label }}</td>
+          <td class="num">{{ r.reached }}</td>
+          <td class="num">{{ '%.1f'|format(r.of_all_pct) }}%</td>
+          <td class="num">{{ stat(r.won_pct, r.reached) }}</td>
+          <td class="num">{{ stat(r.showdown_pct, r.reached) }}</td>
+          <td class="num {{ 'pos' if row_net >= 0 else 'neg' }}">{{ '%.2f'|format(row_net) }}{{ ' bb' if unit == 'bb' else '' }}</td>
+          <td class="num {{ 'pos' if (r.bb_per_100 or 0) >= 0 else 'neg' }}">{{ stat(r.bb_per_100, r.bb_hands, suffix='', fmt='%.2f') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endfor %}
+    <p class="stats-note">Each round is named as the game actually names it, so the same
+    column means the flop in a flop game, 4th street in stud and the first draw in a draw
+    game. Hands count cumulatively: one that reached 6th street is in the 4th and 5th rows
+    too. The opening round isn't listed - every hand is in it by definition.</p>
+  {% else %}
+  <div class="empty-state"><p>No hands to break down.</p></div>
+  {% endif %}
+
+{% elif breakdown_by == 'position' %}
+  {% if position_groups %}
+    {% for group in position_groups %}
+      {% if position_groups|length > 1 %}<h4 class="breakdown-subhead">{{ group.title }}</h4>{% endif %}
+      {{ stat_table(group.rows, 'Position') }}
+    {% endfor %}
+    <p class="stats-note">Stud, razz and stud hi/lo have no button and no blinds, so seats
+    are counted round from the bring-in in the order they act &mdash; BI, +1, +2 and so on.
+    How far the numbering runs depends on how many were dealt in: +5 is the last seat
+    six-handed, +6 seven-handed, +4 five-handed. That means the highest numbers here mix
+    the last seat at one table size with a middle seat at another, so use
+    <em>By table size</em> or a table-size filter to read the late seats cleanly. This is
+    3rd street's order: from 4th onwards the best exposed board acts first.</p>
+  {% else %}
+  <div class="empty-state"><p>No hands to break down.</p></div>
+  {% endif %}
+
+{% elif breakdown %}
+  {{ stat_table(breakdown, dict(breakdowns).get(breakdown_by, '')) }}
+{% else %}
+<div class="empty-state"><p>No hands to break down.</p></div>
+{% endif %}
+
+<h3 class="page-title" style="font-size:15px;margin:26px 0 10px;">Hands</h3>
 {% if hands %}
 <table class="hands">
   <thead>

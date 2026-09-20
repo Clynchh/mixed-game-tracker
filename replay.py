@@ -23,35 +23,40 @@ import equity
 # tournament, which made the replayer look broken for the specific games a
 # player happened to have only seen in bounty format, when the real bug had
 # nothing to do with game type at all.
+# PokerStars screen names can contain internal spaces (e.g. "James UK7"), so a
+# bare \S+ silently drops those players' actions and freezes them on the felt.
+# A name never contains ": ", so match a minimal run up to the delimiter.
+NAME = r"(.+?)"
+
 SEAT_LINE_RE = re.compile(r"^Seat (\d+): (.+?) \(\$?([\d,.]+) in chips[^)]*\)", re.MULTILINE)
 BUTTON_RE = re.compile(r"Seat #(\d+) is the button")
 STREET_RE = re.compile(r"^\*\*\* ([^*]+?) \*\*\*(.*)$")
-DEALT_RE = re.compile(r"^Dealt to (\S+)((?:\s*\[[^\]]*\])+)")
+DEALT_RE = re.compile(rf"^Dealt to {NAME}((?:\s*\[[^\]]*\])+)")
 BRACKET_RE = re.compile(r"\[([^\]]*)\]")
-SHOWS_RE = re.compile(r"^(\S+): shows \[([^\]]*)\]")
-MUCKS_RE = re.compile(r"^(\S+): mucks hand")
-COLLECT_RE = re.compile(r"^(\S+) collected \$?([\d,.]+) from")
-UNCALLED_RE = re.compile(r"^Uncalled bet \(\$?([\d,.]+)\) returned to (\S+)")
+SHOWS_RE = re.compile(rf"^{NAME}: shows \[([^\]]*)\]")
+MUCKS_RE = re.compile(rf"^{NAME}: mucks hand")
+COLLECT_RE = re.compile(rf"^{NAME} collected \$?([\d,.]+) from")
+UNCALLED_RE = re.compile(r"^Uncalled bet \(\$?([\d,.]+)\) returned to (.+?)\s*$")
 
 # (regex, kind) - kind drives how the amount is applied to the player's
 # contribution for the current betting round.
 #   'add' -> amount is extra chips on top of what they already have out
 #   'to'  -> amount is their new TOTAL for this round (raises/completes)
 ACTIONS = [
-    (re.compile(r"^(\S+): posts the ante \$?([\d,.]+)"), "ante"),
-    (re.compile(r"^(\S+): posts ante \$?([\d,.]+)"), "ante"),
-    (re.compile(r"^(\S+): posts (?:the )?small blind \$?([\d,.]+)"), "add"),
-    (re.compile(r"^(\S+): posts (?:the )?big blind \$?([\d,.]+)"), "add"),
-    (re.compile(r"^(\S+): brings[- ]in for \$?([\d,.]+)"), "to"),
-    (re.compile(r"^(\S+): completes it to \$?([\d,.]+)"), "to"),
-    (re.compile(r"^(\S+): raises \$?[\d,.]+ to \$?([\d,.]+)"), "to"),
-    (re.compile(r"^(\S+): bets \$?([\d,.]+)"), "add"),
-    (re.compile(r"^(\S+): calls \$?([\d,.]+)"), "add"),
+    (re.compile(rf"^{NAME}: posts the ante \$?([\d,.]+)"), "ante"),
+    (re.compile(rf"^{NAME}: posts ante \$?([\d,.]+)"), "ante"),
+    (re.compile(rf"^{NAME}: posts (?:the )?small blind \$?([\d,.]+)"), "add"),
+    (re.compile(rf"^{NAME}: posts (?:the )?big blind \$?([\d,.]+)"), "add"),
+    (re.compile(rf"^{NAME}: brings[- ]in for \$?([\d,.]+)"), "to"),
+    (re.compile(rf"^{NAME}: completes it to \$?([\d,.]+)"), "to"),
+    (re.compile(rf"^{NAME}: raises \$?[\d,.]+ to \$?([\d,.]+)"), "to"),
+    (re.compile(rf"^{NAME}: bets \$?([\d,.]+)"), "add"),
+    (re.compile(rf"^{NAME}: calls \$?([\d,.]+)"), "add"),
 ]
-CHECK_RE = re.compile(r"^(\S+): checks")
-FOLD_RE = re.compile(r"^(\S+): folds")
-DISCARD_RE = re.compile(r"^(\S+): discards (\d+) card")
-STANDPAT_RE = re.compile(r"^(\S+): stands pat")
+CHECK_RE = re.compile(rf"^{NAME}: checks")
+FOLD_RE = re.compile(rf"^{NAME}: folds")
+DISCARD_RE = re.compile(rf"^{NAME}: discards (\d+) card")
+STANDPAT_RE = re.compile(rf"^{NAME}: stands pat")
 
 STUD_GAME_TYPES = {"Razz", "Stud", "Stud Hi/Lo"}
 DRAW_GAME_TYPES = {"2-7 Triple Draw", "2-7 Single Draw", "Badugi", "5 Card Draw"}

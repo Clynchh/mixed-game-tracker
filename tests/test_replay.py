@@ -123,3 +123,45 @@ def test_bounty_tournament_seat_lines_still_parse():
     assert data is not None
     assert len(data["seats"]) == 2
     assert data["seats"][0]["start_stack"] == 25000
+
+
+def test_opponent_with_a_space_in_their_name_actually_acts():
+    # PokerStars screen names can contain spaces ("James UK7"). The seat line
+    # regex already allowed it, but every action regex matched only \S+, so
+    # such an opponent sat frozen on the felt - no raise, call, draw or
+    # showdown frame - and chips didn't balance because their bets never
+    # left their stack.
+    raw = (
+        "PokerStars Hand #2: Triple Draw 2-7 Lowball Limit ($1/$2 USD)"
+        " - 2026/09/03 18:15:01 ET\n"
+        "Table 'T' 6-max Seat #1 is the button\n"
+        "Seat 1: clynchh ($25 in chips)\n"
+        "Seat 2: James UK7 ($25 in chips)\n"
+        "clynchh: posts small blind $0.50\n"
+        "James UK7: posts big blind $1\n"
+        "*** DEALING HANDS ***\n"
+        "Dealt to clynchh [Qs 7s 3c 9c 8d]\n"
+        "clynchh: raises $1 to $2\n"
+        "James UK7: raises $1 to $3\n"
+        "clynchh: calls $1\n"
+        "*** FIRST DRAW ***\n"
+        "James UK7: discards 1 card\n"
+        "clynchh: discards 2 cards [Qs 9c]\n"
+        "Dealt to clynchh [7s 3c 8d] [2h 5h]\n"
+        "James UK7: bets $1\n"
+        "clynchh: folds\n"
+        "Uncalled bet ($1) returned to James UK7\n"
+        "James UK7 collected $6 from pot\n"
+        "*** SUMMARY ***\n"
+        "Total pot $6 | Rake $0\n"
+    )
+    data = replay.build_replay(raw, "2-7 Triple Draw", "clynchh", big_blind=1.0)
+    assert data is not None
+    labels = [f["label"] for f in data["frames"]]
+    assert "James UK7 raises $1 to $3" in labels
+    assert "James UK7 discards 1" in labels
+    assert any(l.startswith("James UK7 wins") for l in labels)
+    # chips in == chips out (Rake 0)
+    start_total = sum(s["start_stack"] for s in data["seats"])
+    end_total = sum(s["stack"] for s in data["frames"][-1]["seats"])
+    assert round(start_total, 2) == round(end_total, 2)

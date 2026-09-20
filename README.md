@@ -55,6 +55,160 @@ writes there.
 Your data stays on your own machine. There's no account, no upload, and the
 app makes no network requests at all.
 
+## Stats and reports
+
+The Reports tab breaks your hands down five ways - by position, by street,
+by game, by pot type, and by table size - with the usual tracker stats
+alongside the money:
+
+| Stat | Meaning | Measured against |
+|---|---|---|
+| VPIP | Called, bet or raised in the opening round. Blinds and antes don't count. | every hand |
+| PFR | Raised the opening round | every hand |
+| WWSF | Won when saw flop | hands that got past the opening round |
+| WTSD | Went to showdown | hands that got past the opening round |
+| W$SD | Won money at showdown | hands that reached a showdown |
+| AF | Aggression factor: bets and raises over calls, after the opening round | hands with at least one call |
+
+Each number is shown with the number of hands behind it, and dimmed when
+that's under 30 - a 100% W$SD off two showdowns is noise, and the quickest
+way for a stats page to mislead is to print it at the same weight as one
+backed by six hundred.
+
+### By street
+
+Every round is named the way its own game names it, so the breakdown reads
+Flop / Turn / River for flop games, 4th through 7th street for stud, and
+1st through 3rd draw for the draw games. Each family gets its own table,
+because "the second round" is the turn in one game and 5th street in
+another and they can't share a column heading.
+
+Rows are cumulative - a hand that reached 6th street is counted in the 4th
+and 5th rows too - so each one reads "of the hands that got at least this
+far, here's how they went". The opening round isn't listed, since every
+hand is in it by definition. Folding *on* a street still counts as having
+seen it: you saw the cards and made a decision, which is what the stat is
+asking about.
+
+### Position
+
+Flop and draw games have a button and blinds. The four seats before the
+blinds are always LJ, HJ, CO and BTN, filled backwards from the button;
+UTG names only appear once a table is deep enough to need them:
+
+| players | seats, in order of action |
+|---|---|
+| 6 | SB, BB, LJ, HJ, CO, BTN |
+| 7 | SB, BB, UTG, LJ, HJ, CO, BTN |
+| 8 | SB, BB, UTG, UTG+1, LJ, HJ, CO, BTN |
+| 9 | SB, BB, UTG, UTG+1, UTG+2, LJ, HJ, CO, BTN |
+
+Shorter tables drop the early names first - 5-handed is SB, BB, HJ, CO, BTN
+and 4-handed is SB, BB, CO, BTN.
+
+**Stud, razz and stud hi/lo have neither.** The forced bet is the bring-in,
+so seats are counted round from it in the order they act: `BI`, `+1`, `+2`
+and so on. How far the numbering runs depends on how many were dealt in -
+`+5` is the last seat six-handed, `+6` seven-handed, `+4` five-handed.
+
+One thing to keep in mind reading it: because the deepest number varies with
+table size, the late labels mix positions. `+4` is the last seat to act
+five-handed but a middle seat six-handed, so a report spanning both averages
+the two together and flattens some of the late-position difference. Filter to
+one table size when that matters.
+
+This is 3rd street's order of action; from 4th street onwards the best
+exposed board acts first. It's a genuinely different measurement from a
+button position, so the two are shown as separate tables and never added
+together.
+
+Position is read from what the hand history states outright - who posted
+which blind, which seat had the button, who brought in - rather than counted
+round from the button, because counting is what breaks when a seat is empty,
+sitting out, or carrying a dead button. It's checked against PokerStars' own
+SUMMARY labels across every hand that carries them.
+
+Two cases that look like edge cases but aren't rare: a player flagged
+`is sitting out` may still have been dealt in (they post, get cards, and
+auto-fold), so they're only discounted if they never act; and at antes big
+enough that the low card is already all-in there is no bring-in line at all,
+in which case the first seat to act stands in for it.
+
+### All-In Poker
+
+PokerStars' All-In Poker is Hold'em - two hole cards, the same board, the
+same hand rankings - with a betting structure that only lets you shove or
+fold. Its description never contains the word "Hold'em", so it used to
+classify as an unknown game, which meant no replayer and no all-in EV for
+any of those hands. It's now read as Hold'em with `AI` as its betting
+structure, which keeps it out of the real No Limit Hold'em numbers: a VPIP
+or an aggression factor from one says nothing about the other.
+
+## Keeping it running (Linux/macOS, from source)
+
+`python app.py` lives and dies with the terminal you started it in — close
+that window and the page stops loading, because the server it was talking to
+is gone. To run it in the background instead:
+
+```bash
+./mixtrack start     # keeps running after you close the terminal
+./mixtrack status    # is it up, and where's the database
+./mixtrack stop
+./mixtrack logs
+```
+
+To have it start by itself every time you log in (systemd, so Linux):
+
+```bash
+./mixtrack install-service
+```
+
+That also restarts it if it ever crashes. `./mixtrack uninstall-service`
+undoes it. If you want it up from boot even before anyone logs in, add
+`sudo loginctl enable-linger $USER`.
+
+## Opening it without a server at all
+
+`./mixtrack export` renders the whole app to ordinary HTML files and writes
+them to `static-export/`. Open `static-export/index.html` straight from
+disk — no port, nothing running, works offline:
+
+```bash
+./mixtrack export           # write it once
+./mixtrack export --auto    # ...and rebuild it whenever new hands import
+./mixtrack export-off       # stop rebuilding it
+```
+
+With `--auto`, the running app rebuilds the export within ~15s of picking up
+new hands, so the file on disk is current whenever you open it. For 2,000
+hands the export is around 65 MB and takes about 9 seconds to build.
+
+**What carries over:** every dashboard (cash/tournament, chips/BB), the
+stats, both graphs, the game filter boxes, the session and tournament lists,
+and the full visual replayer for every hand.
+
+**What doesn't, and why:**
+
+| | Reason |
+|---|---|
+| Tagging and notes | A page loaded from disk has nowhere to write. Tag in the app, then export again. |
+| Reports | Its value is its filters, and those need a query per combination. |
+| Settings, rescan | Same reason — they write. |
+| Search and tag filter | Still work, but they hide table rows rather than re-querying, so the stats and graphs above keep covering the whole set. |
+
+The one thing a static copy fundamentally can't do is *import*. New hands
+only appear because the scanner re-reads your PokerStars folder and parses
+the new `.txt` files — a page has no access to that. So the app is still
+what keeps the data current; the export is just a snapshot of it that
+happens to be a browsable copy of the entire UI.
+
+A note on why the export is files rather than one page: browsers block
+`file://` pages from fetching other local files, so a single page would have
+to carry every hand's replay data inline — about 35 MB of JSON parsed on
+every load. Rendering one file per hand sidesteps that entirely; each page
+loads only its own. Links between local files work fine, it's only `fetch()`
+that's blocked.
+
 ## Updating
 
 Download the new `MixedGamesTracker.exe` and replace the old one. That's it —

@@ -49,8 +49,9 @@ DISPLAY_GAME_SHORT_NAMES = {
     ("Omaha Hi/Lo", "PL"): "PLO8",
     ("Omaha Hi/Lo", "NL"): "NLO8",
     ("Omaha Hi/Lo", "FL"): "Limit O8",
+    ("Hold'em", "AI"): "All-In Hold'em",
 }
-LIMIT_TYPE_PREFIX = {"NL": "No Limit", "PL": "Pot Limit", "FL": "Limit"}
+LIMIT_TYPE_PREFIX = {"NL": "No Limit", "PL": "Pot Limit", "FL": "Limit", "AI": "All-In"}
 
 
 def display_game_type(game_type, limit_type):
@@ -166,7 +167,29 @@ def suggest_tourn_summary_dir(hand_history_dir):
     return candidate if os.path.isdir(candidate) else ""
 
 
-fw = watcher.FolderWatcher(get_folder, get_username, get_tourn_summary_dir)
+def get_export_dir():
+    """Where to keep the browsable copy on disk, or "" for not doing that.
+    Set by `./mixtrack export --auto`."""
+    return db.get_setting("static_export_dir", "")
+
+
+def refresh_static_export(new_hands):
+    """Rebuild the on-disk copy after a scan that actually imported
+    something. Skipped when nothing changed - a full rebuild is a few
+    seconds of CPU, which is not worth spending every 15 seconds to
+    reproduce byte-identical files."""
+    if not new_hands or not get_export_dir():
+        return
+    try:
+        import export_static
+        export_static.Exporter(out_dir=get_export_dir()).plan().run(progress=False)
+        print(f"[export] refreshed {get_export_dir()}")
+    except Exception as e:
+        print(f"[export] refresh failed: {e}")
+
+
+fw = watcher.FolderWatcher(get_folder, get_username, get_tourn_summary_dir,
+                           on_scan_complete=refresh_static_export)
 
 
 def scan_in_background(folder, username):
@@ -537,6 +560,21 @@ def dashboard():
 REPORT_SORT_COLUMNS = {"date", "pot", "net", "pot_type", "game_type"}
 REPORT_ROW_LIMIT = 300
 
+# How the stat breakdown can be sliced, in the order the buttons appear.
+BREAKDOWN_LABELS = [
+    ("position", "By position"),
+    ("street", "By street"),
+    ("game", "By game"),
+    ("pot_type", "By pot type"),
+    ("players", "By table size"),
+]
+VALID_BREAKDOWNS = {key for key, _ in BREAKDOWN_LABELS}
+
+# Below this many hands in a stat's own denominator, the number is shown but
+# dimmed: W$SD off three showdowns is noise, and presenting it at the same
+# weight as one off six hundred is the main way a stats page misleads.
+STAT_MIN_SAMPLE = 30
+
 
 def _report_float(name):
     v = request.args.get(name)
@@ -587,25 +625,72 @@ def reports():
         vpip=vpip_only,
     )
 
-    all_matching = db.list_hands(sort=sort, order=order, limit=None, **filters)
-    total = len(all_matching)
-    hands = all_matching[:REPORT_ROW_LIMIT]
+    hands = db.list_hands(sort=sort, order=order, limit=REPORT_ROW_LIMIT, **filters)
+    total = db.count_hands(**filters)
 
-    bb_rows = [h for h in all_matching if h["big_blind"]]
-    net_bb_total = sum(h["hero_net"] / h["big_blind"] for h in bb_rows)
-    avg_pot_bb = (sum((h["pot_total"] or 0) / h["big_blind"] for h in bb_rows) / len(bb_rows)) if bb_rows else 0
+    # Summary and breakdown both come from the same aggregate so the banner
+    # can't disagree with the table under it, and so neither has to pull
+    # every matching hand (raw_text included) back into Python to add up.
+    summary = db.aggregate_stats(**filters)
+    summary["count"] = total
 
-    summary = {
-        "count": total,
-        "net": sum(h["hero_net"] for h in all_matching),
-        "net_bb": net_bb_total,
-        "avg_pot": (sum((h["pot_total"] or 0) for h in all_matching) / total) if total else 0,
-        "avg_pot_bb": avg_pot_bb,
-        "win_rate": (sum(1 for h in all_matching if h["hero_net"] > 0) / total * 100) if total else 0,
-        "bb_per_100": (net_bb_total / len(bb_rows) * 100) if bb_rows else None,
-    }
+    breakdown_by = request.args.get("breakdown")
+    if breakdown_by not in VALID_BREAKDOWNS:
+        breakdown_by = "position"
+
+    # The street breakdown counts each hand once per round it reached, so it
+    # can't be a GROUP BY over one column like the others - it has its own
+    # query and its own table shape.
+    funnel = db.street_funnel(**filters) if breakdown_by == "street" else []
+    breakdown = [] if breakdown_by == "street" else db.aggregate_stats(group_by=breakdown_by, **filters)
+
+    # Blinds and the bring-in are two different ideas of position that don't
+    # belong in one column, so they're shown as separate tables rather than
+    # sorted into a single list where BTN and +3 would sit next to each
+    # other as if they were comparable.
+    position_groups = []
+    if breakdown_by == "position":
+        for title, members in (
+            ("Blind games \u2014 seats from the button", db.BLIND_POSITIONS),
+            ("Stud games \u2014 seats from the bring-in", db.BRING_IN_POSITIONS),
+        ):
+            rows = [r for r in breakdown if r["group"] in members]
+            if rows:
+                position_groups.append({"title": title, "rows": rows})
+
+    if breakdown_by == "game":
+        # The group key is "game_type|limit_type" so the two stay paired;
+        # only the label needs the friendly combined name.
+        for row in breakdown:
+            game_type_, _, limit_type_ = (row["group"] or "").partition("|")
+            row["label"] = display_game_type(game_type_, limit_type_)
+    elif breakdown_by == "players":
+        for row in breakdown:
+            row["label"] = f"{row['group']}-handed" if row["group"] else "unknown"
+    else:
+        for row in breakdown:
+            row["label"] = row["group"] or "unknown"
 
     bounds = db.pot_net_bounds(is_tournament=is_tournament)
+
+    # Every link on the page is the current view with one thing changed, so
+    # they all start from this. url_for drops the None values, which is what
+    # keeps an unset filter out of the query string entirely. Unit is only
+    # pinned once it differs from the mode's default, or switching mode
+    # couldn't pick up its own (tournaments in BB, cash in $).
+    report_args = dict(
+        mode=mode or None,
+        game_type=selected_game_type,
+        pot_type=pot_type,
+        tag=tag,
+        search=search or None,
+        pot_min=pot_min, pot_max=pot_max, net_min=net_min, net_max=net_max,
+        vpip=("1" if vpip_only else None),
+        sort=sort,
+        order=order,
+        unit=(unit if unit != default_unit else None),
+        breakdown=breakdown_by,
+    )
 
     return render_template(
         "reports.html",
@@ -613,6 +698,13 @@ def reports():
         total=total,
         shown=len(hands),
         summary=summary,
+        breakdown=breakdown,
+        breakdown_by=breakdown_by,
+        position_groups=position_groups,
+        funnel=funnel,
+        breakdowns=BREAKDOWN_LABELS,
+        min_sample=STAT_MIN_SAMPLE,
+        report_args=report_args,
         unit=unit,
         default_unit=default_unit,
         game_types=sorted(display_to_pair.keys()),

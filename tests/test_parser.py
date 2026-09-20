@@ -197,3 +197,93 @@ def test_parse_file_skips_unparseable_blocks_but_keeps_valid_ones(tmp_path):
     mixed.write_text("garbage garbage garbage\n\n" + real_hand + "\n")
     hands = hh_parser.parse_file(str(mixed), hero_username=HERO)
     assert len(hands) == 1
+
+
+# Real PokerStars 2-7 Triple Draw prints "*** DEALING HANDS ***" before the
+# pre-draw betting round (then *** FIRST/SECOND/THIRD DRAW ***), NOT the
+# "*** PRE-DRAW ***" the older synthetic sample uses. The opening-round block
+# has to key off it, and pot-type counting has to see raises by opponents
+# whose screen name contains a space ("James UK7").
+TRIPLE_DRAW_3BET = """PokerStars Hand #261960026404:  Triple Draw 2-7 Lowball Limit ($1/$2 USD) - 2026/09/03 18:15:01 WET [2026/09/03 13:15:01 ET]
+Table 'Cepheus VI' 6-max Seat #1 is the button
+Seat 1: clynchh ($25.88 in chips)
+Seat 2: toky909 ($40.42 in chips)
+Seat 3: Necrogenesis ($30 in chips)
+Seat 4: ultimo_ospite ($57.30 in chips)
+Seat 5: James UK7 ($14.50 in chips)
+toky909: posts small blind $0.50
+Necrogenesis: posts big blind $1
+*** DEALING HANDS ***
+Dealt to clynchh [Qs 7s 3c 9c 8d]
+ultimo_ospite: folds
+James UK7: raises $1 to $2
+clynchh: raises $1 to $3
+toky909: folds
+Necrogenesis: folds
+James UK7: calls $1
+*** FIRST DRAW ***
+James UK7: discards 2 cards
+clynchh: discards 2 cards [Qs 9c]
+Dealt to clynchh [7s 3c 8d] [As 5h]
+James UK7: checks
+clynchh: bets $1
+James UK7: calls $1
+*** SECOND DRAW ***
+James UK7: discards 1 card
+clynchh: discards 1 card [As]
+Dealt to clynchh [7s 3c 8d 5h] [9s]
+James UK7: checks
+clynchh: bets $2
+James UK7: raises $2 to $4
+clynchh: calls $2
+*** THIRD DRAW ***
+James UK7: stands pat
+clynchh: discards 1 card [9s]
+Dealt to clynchh [7s 3c 8d 5h] [4s]
+James UK7: bets $2
+clynchh: calls $2
+*** SHOW DOWN ***
+James UK7: shows [2h 6s 4c 3s 7d] (Lo: 7,6,4,3,2)
+clynchh: mucks hand
+James UK7 collected $20.70 from pot
+*** SUMMARY ***
+Total pot $21.50 | Rake $0.80
+Seat 1: clynchh (button) mucked [7s 3c 8d 5h 4s]
+Seat 2: toky909 (small blind) folded before the Draw
+Seat 3: Necrogenesis (big blind) folded before the Draw
+Seat 4: ultimo_ospite folded before the Draw (didn't bet)
+Seat 5: James UK7 showed [2h 6s 4c 3s 7d] and won ($20.70) with Lo: 7,6,4,3,2
+"""
+
+
+def test_dealing_hands_header_and_spaced_opponent_name_give_correct_pot_type():
+    h = hh_parser.parse_hand(TRIPLE_DRAW_3BET, hero_username="clynchh")
+    # "James UK7" opens, hero re-raises: two raises in the opening round = 3-bet.
+    # The old code read the block after "*** FIRST DRAW ***" (a check + a call,
+    # no raise) and, missing the spaced name, called it a Walk.
+    assert h["pot_type"] == "3-bet"
+    assert h["game_type"] == "2-7 Triple Draw"
+
+
+def test_spaced_opponent_name_is_seated_and_read_at_showdown():
+    h = hh_parser.parse_hand(TRIPLE_DRAW_3BET, hero_username="clynchh")
+    assert h["hero_name"] == "clynchh"
+    # hero contributed 3 + 1 + 4 + 2 and mucked at showdown
+    assert round(h["hero_net"], 2) == -10.0
+    assert h["went_to_showdown"] == 1
+    # 5 roster lines - not the SUMMARY block's "Seat N:" lines on top of them
+    assert h["num_players"] == 5
+
+
+def test_single_draw_opening_round_ends_at_first_discard_not_showdown():
+    # Single Draw has no header between its two betting rounds - only
+    # "*** DEALING HANDS ***" up front - so the opening round has to be cut
+    # at the first discard/stand-pat, else post-draw raises inflate the count.
+    with open(SAMPLE_HANDS_PATH, encoding="utf-8") as f:
+        hands = hh_parser.split_hands(f.read())
+    single_draw = next(
+        h for h in hands if "Single Draw 2-7" in h and "*** DEALING HANDS ***" in h
+    )
+    parsed = hh_parser.parse_hand(single_draw, hero_username=HERO)
+    # one raise pre-draw (Corey88), one raise post-draw - only the first counts
+    assert parsed["pot_type"] == "Raised (SRP)"

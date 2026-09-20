@@ -1,0 +1,262 @@
+#!/usr/bin/env bash
+# Start/stop Mixed Games Tracker as a background service.
+#
+# `python app.py` ties the server's life to the terminal it was launched
+# from: closing the window sends SIGHUP to the foreground process group and
+# the server dies with it, so the page stops loading. `start` here launches
+# it in its own session (setsid) with output redirected to a log file, which
+# leaves nothing for the terminal to hang up on.
+#
+# `install-service` goes one better and hands it to systemd, so it also
+# comes back after a reboot.
+set -euo pipefail
+
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/mixed-games-tracker"
+PID_FILE="$STATE_DIR/mixtrack.pid"
+LOG_FILE="$STATE_DIR/mixtrack.log"
+UNIT_NAME="mixed-games-tracker.service"
+UNIT_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$UNIT_NAME"
+PORT="${MGT_PORT:-5151}"
+URL="http://127.0.0.1:$PORT"
+
+# The venv has Flask in it; the system python almost certainly doesn't.
+pick_python() {
+    for candidate in "$APP_DIR/.venv/bin/python" "$APP_DIR/venv/bin/python"; do
+        [ -x "$candidate" ] && { echo "$candidate"; return; }
+    done
+    command -v python3
+}
+PYTHON="${MGT_PYTHON:-$(pick_python)}"
+
+have_systemd() { [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; }
+
+# Installed as a systemd unit, systemd owns the process and the PID file is
+# stale/absent - so every command has to ask systemd first.
+service_installed() { have_systemd && [ -f "$UNIT_FILE" ]; }
+service_active() { service_installed && systemctl --user is-active --quiet "$UNIT_NAME"; }
+
+running_pid() {
+    [ -f "$PID_FILE" ] || return 1
+    local pid
+    pid="$(cat "$PID_FILE" 2>/dev/null)" || return 1
+    [ -n "$pid" ] || return 1
+    # A recycled PID belonging to something else must not be reported as ours,
+    # and must never be handed to `kill`.
+    grep -qa "app.py" "/proc/$pid/cmdline" 2>/dev/null || return 1
+    echo "$pid"
+}
+
+port_open() { "$PYTHON" -c "
+import socket, sys
+s = socket.socket()
+s.settimeout(0.3)
+sys.exit(0 if s.connect_ex(('127.0.0.1', $PORT)) == 0 else 1)
+" 2>/dev/null; }
+
+wait_for_port() {
+    for _ in $(seq 1 40); do
+        port_open && return 0
+        sleep 0.25
+    done
+    return 1
+}
+
+cmd_start() {
+    if service_installed; then
+        systemctl --user start "$UNIT_NAME"
+    else
+        if running_pid >/dev/null; then
+            echo "Already running (pid $(running_pid)) on $URL"
+            return 0
+        fi
+        if port_open; then
+            echo "Something is already listening on port $PORT."
+            echo "If that's the tracker, open $URL. Otherwise set MGT_PORT to a free port."
+            return 1
+        fi
+        mkdir -p "$STATE_DIR"
+        # setsid detaches from this terminal's session; </dev/null and the
+        # redirects mean nothing is left pointing at a TTY that can go away.
+        # MGT_NO_BROWSER stops app.py racing us to open a browser window.
+        (
+            cd "$APP_DIR"
+            MGT_NO_BROWSER=1 MGT_PORT="$PORT" \
+                setsid "$PYTHON" app.py >>"$LOG_FILE" 2>&1 </dev/null &
+            echo $! >"$PID_FILE"
+        )
+    fi
+
+    if wait_for_port; then
+        echo "Mixed Games Tracker is running at $URL"
+        echo "It stays up when you close this terminal. Stop it with: ./mixtrack stop"
+    else
+        echo "Didn't come up within 10s. Last few log lines:"
+        tail -n 20 "$LOG_FILE" 2>/dev/null || true
+        return 1
+    fi
+}
+
+cmd_stop() {
+    if service_active; then
+        systemctl --user stop "$UNIT_NAME"
+        echo "Stopped."
+        return 0
+    fi
+    local pid
+    if pid="$(running_pid)"; then
+        kill "$pid"
+        for _ in $(seq 1 20); do
+            running_pid >/dev/null || break
+            sleep 0.25
+        done
+        running_pid >/dev/null && kill -9 "$pid" 2>/dev/null || true
+        rm -f "$PID_FILE"
+        echo "Stopped."
+    else
+        rm -f "$PID_FILE"
+        echo "Not running."
+    fi
+}
+
+cmd_status() {
+    if service_installed; then
+        echo "Mode: systemd user service ($UNIT_NAME)"
+        systemctl --user is-enabled "$UNIT_NAME" >/dev/null 2>&1 \
+            && echo "Starts at login: yes" || echo "Starts at login: no"
+        if service_active; then
+            echo "Running at $URL"
+        else
+            echo "Not running."
+        fi
+    elif running_pid >/dev/null; then
+        echo "Mode: background process (pid $(running_pid))"
+        echo "Running at $URL"
+    else
+        echo "Not running."
+    fi
+    echo "Database: $APP_DIR/tracker.db"
+    echo "Log:      $LOG_FILE"
+}
+
+cmd_logs() {
+    if service_installed; then
+        journalctl --user -u "$UNIT_NAME" -n 50 -f
+    else
+        tail -n 50 -f "$LOG_FILE"
+    fi
+}
+
+cmd_install_service() {
+    have_systemd || { echo "No systemd here - use ./mixtrack start instead."; return 1; }
+    # A plain background process dies at logout and doesn't come back after a
+    # reboot. As a user unit with lingering enabled, it does both.
+    cmd_stop >/dev/null 2>&1 || true
+    mkdir -p "$(dirname "$UNIT_FILE")"
+    cat >"$UNIT_FILE" <<UNIT
+[Unit]
+Description=Mixed Games Tracker
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=$APP_DIR
+Environment=MGT_NO_BROWSER=1
+Environment=MGT_PORT=$PORT
+ExecStart=$PYTHON $APP_DIR/app.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+UNIT
+    systemctl --user daemon-reload
+    systemctl --user enable --now "$UNIT_NAME"
+    # Without lingering, the user manager is torn down at logout and started
+    # again only on the next graphical login - so the tracker comes back when
+    # you log in, but not on a machine that has rebooted to the login screen.
+    # That's a system-level change, so it's asked for rather than assumed.
+    if ! loginctl show-user "$USER" 2>/dev/null | grep -q "Linger=yes"; then
+        echo
+        echo "It will now start when you log in. To have it run from boot even"
+        echo "before you log in, also run:"
+        echo "    sudo loginctl enable-linger $USER"
+        echo
+    fi
+    if wait_for_port; then
+        echo "Installed. Mixed Games Tracker runs at $URL and restarts on boot."
+    else
+        echo "Installed, but it didn't come up. Check: ./mixtrack logs"
+        return 1
+    fi
+}
+
+cmd_uninstall_service() {
+    service_installed || { echo "No service installed."; return 0; }
+    systemctl --user disable --now "$UNIT_NAME" || true
+    rm -f "$UNIT_FILE"
+    systemctl --user daemon-reload
+    echo "Service removed. ./mixtrack start still works."
+}
+
+cmd_export() {
+    local auto="" out="$APP_DIR/static-export"
+    shift || true
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --auto)  auto=1 ;;
+            --out)   shift; out="$1" ;;
+            *)       echo "Unknown option: $1"; return 1 ;;
+        esac
+        shift
+    done
+
+    "$PYTHON" "$APP_DIR/export_static.py" --out "$out" || return 1
+
+    if [ -n "$auto" ]; then
+        # Recorded in the database rather than here, because it's the running
+        # app (not this script) that has to rebuild the export when new hands
+        # land.
+        (cd "$APP_DIR" && "$PYTHON" -c \
+            "import sys,db; db.set_setting('static_export_dir', sys.argv[1])" "$out")
+        echo
+        echo "Auto-refresh on. New hands rebuild the export within ~15s"
+        echo "while the app is running (./mixtrack status)."
+    fi
+}
+
+cmd_export_off() {
+    (cd "$APP_DIR" && "$PYTHON" -c \
+        "import db; db.set_setting('static_export_dir', '')")
+    echo "Auto-refresh off. The exported files are left in place."
+}
+
+case "${1:-start}" in
+    start)             cmd_start ;;
+    export)            cmd_export "$@" ;;
+    export-off)        cmd_export_off ;;
+    stop)              cmd_stop ;;
+    restart)           cmd_stop; cmd_start ;;
+    status)            cmd_status ;;
+    logs)              cmd_logs ;;
+    install-service)   cmd_install_service ;;
+    uninstall-service) cmd_uninstall_service ;;
+    *)
+        cat <<USAGE
+Usage: ./mixtrack <command>
+
+  start              Run in the background (survives closing the terminal)
+  stop               Stop it
+  restart            Stop, then start
+  status             Is it running, and where's the data
+  logs               Follow the log
+  install-service    Also start it automatically at login/boot (systemd)
+  uninstall-service  Undo install-service
+
+  export [--auto]    Write a browsable copy to static-export/ that opens
+                     straight from disk, no server. --auto rebuilds it
+                     whenever new hands are imported.
+  export-off         Stop rebuilding it automatically
+USAGE
+        exit 1 ;;
+esac

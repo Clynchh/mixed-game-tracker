@@ -58,6 +58,23 @@ CREATE TABLE IF NOT EXISTS hands (
     pot_type      TEXT,
     went_to_showdown INTEGER,
     vpip          INTEGER,
+    -- Seat relative to the button (SB/BB/UTG/.../CO/BTN). NULL in stud and
+    -- razz, which have no button at all, and in hands hero sat out.
+    hero_position TEXT,
+    -- Hero was still in when the SECOND betting round began: the flop in a
+    -- flop game, 4th street in stud, the first draw in a draw game. One
+    -- column rather than three because it's the denominator of the same
+    -- stat in every game.
+    saw_next_street INTEGER,
+    -- How many betting rounds past the opening one hero was still in for.
+    -- 1 is the flop / 4th street / first draw, so which street a number
+    -- means depends on the game - see STREET_NAMES.
+    streets_seen  INTEGER,
+    raised_opening INTEGER,
+    -- Bets/raises and calls after the opening round, kept as counts so they
+    -- can be summed across hands and divided once for aggression factor.
+    postflop_aggr INTEGER,
+    postflop_calls INTEGER,
     is_allin_ev   INTEGER,
     equity_pct    REAL,
     ev_net        REAL,
@@ -139,6 +156,12 @@ _ADDED_COLUMNS = {
         ("ev_net", "REAL"),
         ("vpip", "INTEGER"),
         ("bounty_won", "REAL"),
+        ("hero_position", "TEXT"),
+        ("saw_next_street", "INTEGER"),
+        ("streets_seen", "INTEGER"),
+        ("raised_opening", "INTEGER"),
+        ("postflop_aggr", "INTEGER"),
+        ("postflop_calls", "INTEGER"),
     ],
     "tournaments": [
         ("finished", "INTEGER"),
@@ -205,9 +228,26 @@ def clear_file_state():
         conn.execute("DELETE FROM file_state")
 
 
+# Columns added after the first release. A hand dict that predates them (or
+# comes from somewhere other than the parser) is filled in rather than
+# rejected: sqlite raises on a missing named parameter, and refusing to
+# store an otherwise-good hand over a stat column would be the wrong
+# trade.
+_OPTIONAL_HAND_FIELDS = {
+    "bounty_won": 0.0,
+    "hero_position": None,
+    "saw_next_street": 0,
+    "streets_seen": 0,
+    "raised_opening": 0,
+    "postflop_aggr": 0,
+    "postflop_calls": 0,
+}
+
+
 def upsert_hand(hand: dict) -> bool:
     """Insert or update a parsed hand. Returns True if it was newly inserted
     (as opposed to overwriting a hand seen before, e.g. after a parser fix)."""
+    hand = {**_OPTIONAL_HAND_FIELDS, **hand}
     with get_conn() as conn:
         existed = conn.execute("SELECT 1 FROM hands WHERE hand_id=?", (hand["hand_id"],)).fetchone() is not None
         conn.execute(
@@ -216,12 +256,14 @@ def upsert_hand(hand: dict) -> bool:
                 table_name, date_played, hero_name, hero_cards, hero_invested,
                 hero_collected, hero_net, pot_total, pot_type, went_to_showdown, vpip,
                 is_allin_ev, equity_pct, ev_net, big_blind, num_players, source_file, raw_text,
-                bounty_won)
+                bounty_won, hero_position, saw_next_street, streets_seen, raised_opening,
+                postflop_aggr, postflop_calls)
                VALUES (:hand_id, :game_type, :limit_type, :stakes, :is_tournament, :tournament_id,
                        :table_name, :date_played, :hero_name, :hero_cards, :hero_invested,
                        :hero_collected, :hero_net, :pot_total, :pot_type, :went_to_showdown, :vpip,
                        :is_allin_ev, :equity_pct, :ev_net, :big_blind, :num_players, :source_file, :raw_text,
-                       :bounty_won)
+                       :bounty_won, :hero_position, :saw_next_street, :streets_seen, :raised_opening,
+                       :postflop_aggr, :postflop_calls)
                ON CONFLICT(hand_id) DO UPDATE SET
                  game_type=excluded.game_type, limit_type=excluded.limit_type, stakes=excluded.stakes,
                  is_tournament=excluded.is_tournament, tournament_id=excluded.tournament_id,
@@ -232,7 +274,10 @@ def upsert_hand(hand: dict) -> bool:
                  went_to_showdown=excluded.went_to_showdown, vpip=excluded.vpip, is_allin_ev=excluded.is_allin_ev,
                  equity_pct=excluded.equity_pct, ev_net=excluded.ev_net, big_blind=excluded.big_blind,
                  num_players=excluded.num_players, source_file=excluded.source_file, raw_text=excluded.raw_text,
-                 bounty_won=excluded.bounty_won""",
+                 bounty_won=excluded.bounty_won, hero_position=excluded.hero_position,
+                 saw_next_street=excluded.saw_next_street, streets_seen=excluded.streets_seen,
+                 raised_opening=excluded.raised_opening,
+                 postflop_aggr=excluded.postflop_aggr, postflop_calls=excluded.postflop_calls""",
             hand,
         )
         return not existed
@@ -490,6 +535,229 @@ def list_hands(limit=200, offset=0, sort="date", order="desc", **filters):
     with get_conn() as conn:
         rows = conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
+
+
+# Preflop order of action, which is also how a positional report reads most
+# naturally: earliest seat first, button last.
+BLIND_POSITIONS = ["SB", "BB", "UTG", "UTG+1", "UTG+2", "UTG+3", "UTG+4", "LJ", "HJ", "CO", "BTN"]
+# Stud has no button or blinds, so seats are counted round from the bring-in
+# in the order they act: BI, +1, +2 ... The last number depends on how many
+# were dealt in (+5 six-handed, +6 seven-handed).
+BRING_IN_POSITIONS = ["BI"] + [f"+{i}" for i in range(1, 8)]
+POSITION_ORDER = BLIND_POSITIONS + BRING_IN_POSITIONS
+
+# Which betting rounds each family of games actually has, in order, so that
+# "one round past the opening" can be printed as the street it really is.
+STUD_GAMES = {"Razz", "Stud", "Stud Hi/Lo"}
+SINGLE_DRAW_GAMES = {"2-7 Single Draw"}
+MULTI_DRAW_GAMES = {"2-7 Triple Draw", "Badugi", "5 Card Draw"}
+STREET_NAMES = {
+    "flop": ["Flop", "Turn", "River"],
+    "stud": ["4th street", "5th street", "6th street", "7th street"],
+    "draw": ["1st draw", "2nd draw", "3rd draw"],
+    "single-draw": ["The draw"],
+}
+FAMILY_NAMES = {
+    "flop": "Flop games", "stud": "Stud games",
+    "draw": "Draw games", "single-draw": "Single draw",
+}
+
+
+def game_family(game_type):
+    if game_type in STUD_GAMES:
+        return "stud"
+    if game_type in SINGLE_DRAW_GAMES:
+        return "single-draw"
+    if game_type in MULTI_DRAW_GAMES:
+        return "draw"
+    return "flop"
+
+
+def street_name(game_type, level):
+    """What the nth betting round past the opening one is called in this
+    game. Level 1 is the flop, 4th street or first draw."""
+    names = STREET_NAMES[game_family(game_type)]
+    return names[level - 1] if 1 <= level <= len(names) else f"round {level}"
+
+# Everything the stat report needs, as sums that can be grouped by anything.
+# Percentages are worked out afterwards in Python rather than here: each one
+# has its own denominator (hands, hands that saw a flop, hands that reached
+# showdown), and spelling those out in SQL makes the query unreadable
+# without making it faster.
+_STAT_SUMS = """
+    COUNT(*) AS hands,
+    SUM(h.hero_net) AS net,
+    SUM(CASE WHEN h.big_blind > 0 THEN h.hero_net / h.big_blind END) AS net_bb,
+    SUM(CASE WHEN h.big_blind > 0 THEN 1 ELSE 0 END) AS bb_hands,
+    SUM(COALESCE(h.vpip, 0)) AS vpip_n,
+    SUM(COALESCE(h.raised_opening, 0)) AS pfr_n,
+    SUM(COALESCE(h.saw_next_street, 0)) AS saw_n,
+    SUM(CASE WHEN h.saw_next_street = 1 AND h.hero_collected > 0 THEN 1 ELSE 0 END) AS won_saw_n,
+    SUM(CASE WHEN h.went_to_showdown = 1 THEN 1 ELSE 0 END) AS showdown_n,
+    SUM(CASE WHEN h.went_to_showdown = 1 AND h.hero_collected > 0 THEN 1 ELSE 0 END) AS won_showdown_n,
+    SUM(COALESCE(h.postflop_aggr, 0)) AS aggr_n,
+    SUM(COALESCE(h.postflop_calls, 0)) AS calls_n,
+    SUM(COALESCE(h.pot_total, 0)) AS pot_sum,
+    SUM(CASE WHEN h.big_blind > 0 THEN h.pot_total / h.big_blind END) AS pot_sum_bb,
+    SUM(CASE WHEN h.hero_net > 0 THEN 1 ELSE 0 END) AS won_n
+"""
+
+# How each report groups its rows. The value is the SQL expression grouped
+# on; "game" needs both columns because game_type alone can't tell No Limit
+# Hold'em from Limit Hold'em.
+STAT_GROUPINGS = {
+    "position": "h.hero_position",
+    "game": "h.game_type || '|' || COALESCE(h.limit_type, '')",
+    "pot_type": "h.pot_type",
+    "players": "h.num_players",
+}
+
+
+def _pct(numerator, denominator):
+    return (numerator / denominator * 100) if denominator else None
+
+
+def _derive_stats(row):
+    """Turn the raw sums into the stats people actually read.
+
+    Each denominator is the one the stat is defined against, and is carried
+    alongside the percentage so the UI can grey out a number that rests on
+    barely any hands - 100% W$SD off two showdowns is noise, not a read."""
+    d = dict(row)
+    hands = d["hands"] or 0
+    saw = d["saw_n"] or 0
+    showdowns = d["showdown_n"] or 0
+    d["vpip_pct"] = _pct(d["vpip_n"], hands)
+    d["pfr_pct"] = _pct(d["pfr_n"], hands)
+    d["saw_pct"] = _pct(saw, hands)
+    d["wwsf_pct"] = _pct(d["won_saw_n"], saw)
+    d["wtsd_pct"] = _pct(showdowns, saw)
+    d["wsd_pct"] = _pct(d["won_showdown_n"], showdowns)
+    d["wwsf_n"], d["wtsd_n"], d["wsd_n"] = saw, saw, showdowns
+    # Aggression factor is undefined with no calls rather than infinite, so
+    # it stays None instead of being reported as a huge number.
+    d["aggression"] = (d["aggr_n"] / d["calls_n"]) if d["calls_n"] else None
+    d["bb_per_100"] = ((d["net_bb"] / d["bb_hands"]) * 100) if d["bb_hands"] else None
+    d["win_rate"] = _pct(d["won_n"], hands)
+    d["avg_pot"] = (d["pot_sum"] / hands) if hands else 0
+    d["avg_pot_bb"] = (d["pot_sum_bb"] / d["bb_hands"]) if d["bb_hands"] else 0
+    # A net of zero reads better than None in the banner, and "no hands" is
+    # already obvious from the hand count next to it.
+    d["net"] = d["net"] or 0
+    d["net_bb"] = d["net_bb"] or 0
+    return d
+
+
+def aggregate_stats(group_by=None, **filters):
+    """Stats over every hand matching the same filters the report list uses.
+
+    Returns one row when group_by is None, otherwise a row per group with a
+    "group" key. Grouping runs in SQL rather than over the hand list in
+    Python because these reports are the one place that wants every matching
+    hand, and pulling thousands of raw_text blobs back just to count them
+    would dominate the page load."""
+    clause, params = _hand_filters(**filters)
+    if group_by is None:
+        query = f"SELECT {_STAT_SUMS} FROM hands h{clause}"
+        with get_conn() as conn:
+            return _derive_stats(conn.execute(query, params).fetchone())
+
+    expr = STAT_GROUPINGS[group_by]
+    query = f'SELECT {expr} AS "group", {_STAT_SUMS} FROM hands h{clause} GROUP BY 1'
+    with get_conn() as conn:
+        rows = [_derive_stats(r) for r in conn.execute(query, params).fetchall()]
+
+    if group_by == "position":
+        # Stud has no button, and a hand hero sat out has no seat, so both
+        # come back with a NULL group that says nothing about position.
+        rows = [r for r in rows if r["group"]]
+        order = {name: i for i, name in enumerate(POSITION_ORDER)}
+        rows.sort(key=lambda r: order.get(r["group"], len(order)))
+    else:
+        rows.sort(key=lambda r: -(r["hands"] or 0))
+    return rows
+
+
+def street_funnel(**filters):
+    """How far hands actually went, street by street, per family of games.
+
+    Returns [{family, family_label, rows: [...]}]. Each row is one betting
+    round: how many hands got that far, what share of the family's hands
+    that is, and how often hero won the ones that did.
+
+    Grouped by family rather than by game because "level 2" is the turn in
+    one game and 5th street in another - a single table mixing them would
+    have no honest column heading. Within a family the rounds line up, and
+    the game filter is there for looking at one game on its own.
+
+    Hands are counted cumulatively: a hand that reached 6th street also
+    reached 4th and 5th, so it belongs in all three rows."""
+    clause, params = _hand_filters(**filters)
+    query = f"""
+        SELECT h.game_type AS game_type, COALESCE(h.streets_seen, 0) AS depth,
+               COUNT(*) AS n,
+               SUM(CASE WHEN h.hero_collected > 0 THEN 1 ELSE 0 END) AS won,
+               SUM(CASE WHEN h.went_to_showdown = 1 THEN 1 ELSE 0 END) AS showdowns,
+               SUM(h.hero_net) AS net,
+               SUM(CASE WHEN h.big_blind > 0 THEN h.hero_net / h.big_blind END) AS net_bb,
+               SUM(CASE WHEN h.big_blind > 0 THEN 1 ELSE 0 END) AS bb_hands
+        FROM hands h{clause} GROUP BY 1, 2
+    """
+    with get_conn() as conn:
+        raw = [dict(r) for r in conn.execute(query, params).fetchall()]
+
+    families = {}
+    for row in raw:
+        fam = game_family(row["game_type"])
+        bucket = families.setdefault(fam, {"total": 0, "by_depth": {}, "sample": row["game_type"]})
+        bucket["total"] += row["n"]
+        d = bucket["by_depth"].setdefault(row["depth"], dict.fromkeys(
+            ("n", "won", "showdowns", "net", "net_bb", "bb_hands"), 0))
+        for key in d:
+            d[key] += row[key] or 0
+
+    out = []
+    for fam, bucket in families.items():
+        depths = bucket["by_depth"]
+        levels = len(STREET_NAMES[fam])
+        rows = []
+        for level in range(1, levels + 1):
+            deeper = [v for depth, v in depths.items() if depth >= level]
+            reached = sum(v["n"] for v in deeper)
+            if not reached:
+                continue
+            won = sum(v["won"] for v in deeper)
+            bb_hands = sum(v["bb_hands"] for v in deeper)
+            net_bb = sum(v["net_bb"] for v in deeper)
+            rows.append({
+                "level": level,
+                "label": street_name(bucket["sample"], level),
+                "reached": reached,
+                "of_all_pct": _pct(reached, bucket["total"]),
+                "won": won,
+                "won_pct": _pct(won, reached),
+                "showdowns": sum(v["showdowns"] for v in deeper),
+                # As a rate, not a count: a hand that reaches a showdown has
+                # by definition reached every street, so the raw count is
+                # identical on every row of the family and says nothing. The
+                # share of hands that got this far and then went all the way
+                # does vary, and is the interesting half.
+                "showdown_pct": _pct(sum(v["showdowns"] for v in deeper), reached),
+                "net": sum(v["net"] for v in deeper),
+                "net_bb": net_bb,
+                "bb_hands": bb_hands,
+                "bb_per_100": ((net_bb / bb_hands) * 100) if bb_hands else None,
+            })
+        if rows:
+            out.append({
+                "family": fam,
+                "family_label": FAMILY_NAMES[fam],
+                "hands": bucket["total"],
+                "rows": rows,
+            })
+    order = list(STREET_NAMES)
+    out.sort(key=lambda f: order.index(f["family"]))
+    return out
 
 
 def all_pot_types(is_tournament=None):

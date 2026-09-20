@@ -16,6 +16,12 @@ import equity
 
 HAND_SPLIT_RE = re.compile(r"(?=^PokerStars (?:Hand|Game) #\d+)", re.MULTILINE)
 
+# PokerStars screen names can contain internal spaces (e.g. "James UK7"), so a
+# bare \S+ silently drops those players' action/result lines. Every such line is
+# "<name>: <verb> ..." or "<name> <verb> ...", and a name never contains ": ",
+# so match the name as a minimal run up to the delimiter instead of one token.
+NAME = r"(.+?)"
+
 HEADER_RE = re.compile(
     r"^PokerStars (?:Hand|Game) #(?P<hand_id>\d+):\s*"
     r"(?:Tournament #(?P<tourney_id>\d+),\s*)?"
@@ -28,17 +34,35 @@ HEADER_RE = re.compile(
 )
 
 TABLE_RE = re.compile(r"^Table '(?P<table>[^']+)'", re.MULTILINE)
-SEAT_RE = re.compile(r"^Seat \d+: (\S+) \(", re.MULTILINE)
+# Only the roster lines up top ("Seat 3: Necrogenesis ($30 in chips)"), never
+# the SUMMARY block's "Seat 3: Necrogenesis (big blind) folded ..." - hence the
+# "in chips" tail. Without it, names with a space (unmatched, so skipped) and
+# names without one (matched twice) both threw off num_players.
+SEAT_RE = re.compile(rf"^Seat \d+: {NAME} \([^)]*\bin chips\b", re.MULTILINE)
+# "Table 'Cepheus VI' 6-max Seat #5 is the button". Absent in stud/razz,
+# which have no button at all - antes and a bring-in decide the order there,
+# so those games genuinely have no position and must report none rather
+# than a made-up one.
+BUTTON_SEAT_RE = re.compile(r"Seat #(\d+) is the button")
+# Same roster lines as SEAT_RE, but keeping the seat number and whatever
+# follows the stack - position is worked out from where each seat sits
+# relative to the button, and the tail is what marks a player as sitting out.
+SEAT_NO_RE = re.compile(rf"^Seat (\d+): {NAME} \([^)]*\bin chips\b[^)]*\)(.*)$", re.MULTILINE)
+# Seat lines in the SUMMARY block. A player who was dealt in always has
+# something after their name there (a position, a fold, a result); one who
+# was not gets a bare "Seat 5: James UK7".
+SUMMARY_SEAT_RE = re.compile(r"^Seat (\d+): (.*)$", re.MULTILINE)
+
 STREET_HEADER_RE = re.compile(
     r"^\*\*\* (3rd STREET|4th STREET|5th STREET|6th STREET|7th STREET|RIVER|TURN|FLOP|"
-    r"HOLE CARDS|PRE-DRAW|FIRST DRAW|SECOND DRAW|THIRD DRAW|DRAW|"
+    r"HOLE CARDS|PRE-DRAW|DEALING HANDS|FIRST DRAW|SECOND DRAW|THIRD DRAW|DRAW|"
     r"SHOW DOWN|SUMMARY)",
     re.MULTILINE | re.IGNORECASE,
 )
 # These headers mark the START of the first betting round (right after blinds/antes
 # are posted) rather than a boundary BETWEEN two rounds - flushing here would wrongly
 # split a blind post from a raise that happens later in that same round.
-NON_FLUSH_HEADERS = {"hole cards", "pre-draw"}
+NON_FLUSH_HEADERS = {"hole cards", "pre-draw", "dealing hands"}
 
 # Single Draw hands print no header at all between the pre-draw and post-draw
 # betting rounds - only "*** DEALING HANDS ***" appears once, before the
@@ -47,13 +71,13 @@ NON_FLUSH_HEADERS = {"hole cards", "pre-draw"}
 # it doubles as a flush point. Safe to flush on every line in the sequence
 # (not just the first) - street_total is back to 0 after the first flush, so
 # later discard/stand-pat lines are no-ops.
-DISCARD_RE = re.compile(r"^\S+: discards \d+ card")
-STANDPAT_RE = re.compile(r"^\S+: stands pat")
+DISCARD_RE = re.compile(r"^.+?: discards \d+ card")
+STANDPAT_RE = re.compile(r"^.+?: stands pat")
 # Captures every bracket group on the line - stud/draw games re-deal hero each
 # street as "Dealt to X [previously known] [new card]", and only grabbing the
 # first bracket (as a single-group regex would) misses every card dealt after
 # 3rd street/first draw.
-DEALT_TO_RE = re.compile(r"^Dealt to (\S+)((?:\s*\[[^\]]*\])+)", re.MULTILINE)
+DEALT_TO_RE = re.compile(rf"^Dealt to {NAME}((?:\s*\[[^\]]*\])+)", re.MULTILINE)
 BRACKET_RE = re.compile(r"\[([^\]]*)\]")
 
 # The two numbers in a level/stakes string, e.g. "$0.01/$0.02 USD" or
@@ -63,7 +87,7 @@ BLIND_SIZE_RE = re.compile(r"\$?([\d,]+(?:\.\d+)?)\s*/\s*\$?([\d,]+(?:\.\d+)?)")
 
 # The big blind a player actually put in. This is the definitive source -
 # it doesn't depend on interpreting the level notation at all.
-BIG_BLIND_POST_RE = re.compile(r"^\S+: posts (?:the )?big blind \$?([\d,]+(?:\.\d+)?)", re.MULTILINE)
+BIG_BLIND_POST_RE = re.compile(r"^.+?: posts (?:the )?big blind \$?([\d,]+(?:\.\d+)?)", re.MULTILINE)
 
 # Tournament buy-in, e.g. "$50+$5" (buy-in + fee) or "$50+$5+$5" (+bounty) at the
 # very start of the game description. Free/satellite tournaments with no $ prefix
@@ -91,7 +115,7 @@ def _clean_tourney_name(game_desc):
 # resolved in this hand's text. That still means the hand ended the
 # tournament for X, just without knowing exactly where they placed.
 FINISH_RE = re.compile(
-    r"^(\S+) finished the tournament(?: in (\d+)\w{2} place)?(?:,? and received \$([\d,]+(?:\.\d+)?))?",
+    rf"^{NAME} finished the tournament(?: in (\d+)\w{{2}} place)?(?:,? and received \$([\d,]+(?:\.\d+)?))?",
     re.MULTILINE,
 )
 
@@ -100,37 +124,37 @@ FINISH_RE = re.compile(
 # separate from the chip pot for the hand, and can happen on any hand in the
 # tournament (not just the last one), so it's summed hand-by-hand rather than
 # read off a single summary line the way the finish payout is.
-BOUNTY_WIN_RE = re.compile(r"^(\S+) wins \$([\d,]+(?:\.\d+)?) for eliminating", re.MULTILINE)
+BOUNTY_WIN_RE = re.compile(rf"^{NAME} wins \$([\d,]+(?:\.\d+)?) for eliminating", re.MULTILINE)
 
 # Money-moving action patterns: (regex, mode) where mode is
 # 'add'  -> add amount to current street total
 # 'set'  -> current street total becomes amount (raises/completes "to X")
 # 'immediate' -> add straight to invested regardless of street tracking (antes/blinds/bring-in-set below handled separately)
 ACTION_PATTERNS = [
-    (re.compile(r"^(\S+): posts the ante \$?([\d,]+(?:\.\d+)?)"), "immediate"),
-    (re.compile(r"^(\S+): posts ante \$?([\d,]+(?:\.\d+)?)"), "immediate"),
-    (re.compile(r"^(\S+): posts small blind \$?([\d,]+(?:\.\d+)?)"), "add"),
-    (re.compile(r"^(\S+): posts the small blind \$?([\d,]+(?:\.\d+)?)"), "add"),
-    (re.compile(r"^(\S+): posts big blind \$?([\d,]+(?:\.\d+)?)"), "add"),
-    (re.compile(r"^(\S+): posts the big blind \$?([\d,]+(?:\.\d+)?)"), "add"),
-    (re.compile(r"^(\S+): brings[- ]in for \$?([\d,]+(?:\.\d+)?)"), "set"),
-    (re.compile(r"^(\S+): completes it to \$?([\d,]+(?:\.\d+)?)"), "set"),
-    (re.compile(r"^(\S+): bets \$?([\d,]+(?:\.\d+)?)"), "add"),
-    (re.compile(r"^(\S+): calls \$?([\d,]+(?:\.\d+)?)"), "add"),
-    (re.compile(r"^(\S+): raises \$?[\d,]+(?:\.\d+)? to \$?([\d,]+(?:\.\d+)?)"), "set_captured2"),
+    (re.compile(rf"^{NAME}: posts the ante \$?([\d,]+(?:\.\d+)?)"), "immediate"),
+    (re.compile(rf"^{NAME}: posts ante \$?([\d,]+(?:\.\d+)?)"), "immediate"),
+    (re.compile(rf"^{NAME}: posts small blind \$?([\d,]+(?:\.\d+)?)"), "add"),
+    (re.compile(rf"^{NAME}: posts the small blind \$?([\d,]+(?:\.\d+)?)"), "add"),
+    (re.compile(rf"^{NAME}: posts big blind \$?([\d,]+(?:\.\d+)?)"), "add"),
+    (re.compile(rf"^{NAME}: posts the big blind \$?([\d,]+(?:\.\d+)?)"), "add"),
+    (re.compile(rf"^{NAME}: brings[- ]in for \$?([\d,]+(?:\.\d+)?)"), "set"),
+    (re.compile(rf"^{NAME}: completes it to \$?([\d,]+(?:\.\d+)?)"), "set"),
+    (re.compile(rf"^{NAME}: bets \$?([\d,]+(?:\.\d+)?)"), "add"),
+    (re.compile(rf"^{NAME}: calls \$?([\d,]+(?:\.\d+)?)"), "add"),
+    (re.compile(rf"^{NAME}: raises \$?[\d,]+(?:\.\d+)? to \$?([\d,]+(?:\.\d+)?)"), "set_captured2"),
 ]
 
-COLLECTED_RE = re.compile(r"^(\S+) collected \$?([\d,]+(?:\.\d+)?) from")
-UNCALLED_RE = re.compile(r"^Uncalled bet \(\$?([\d,]+(?:\.\d+)?)\) returned to (\S+)")
+COLLECTED_RE = re.compile(rf"^{NAME} collected \$?([\d,]+(?:\.\d+)?) from")
+UNCALLED_RE = re.compile(r"^Uncalled bet \(\$?([\d,]+(?:\.\d+)?)\) returned to (.+?)\s*$")
 POT_TOTAL_RE = re.compile(r"^Total pot \$?([\d,]+(?:\.\d+)?)")
 SEAT_COUNT_RE = re.compile(r"^Seat \d+:")
 SHOWDOWN_RE = re.compile(r"^\*\*\* SHOW DOWN \*\*\*", re.MULTILINE)
 
 # --- All-in EV inputs -------------------------------------------------
 BOARD_LINE_RE = re.compile(r"^\*\*\* (FLOP|TURN|RIVER) \*\*\*((?:\s*\[[^\]]*\])+)", re.MULTILINE)
-FOLD_LINE_RE = re.compile(r"^(\S+): folds")
-ALLIN_LINE_RE = re.compile(r"^(\S+): .*and is all-in")
-SHOWS_RE = re.compile(r"^(\S+): shows \[([^\]]*)\]", re.MULTILINE)
+FOLD_LINE_RE = re.compile(rf"^{NAME}: folds")
+ALLIN_LINE_RE = re.compile(rf"^{NAME}: .*and is all-in")
+SHOWS_RE = re.compile(rf"^{NAME}: shows \[([^\]]*)\]", re.MULTILINE)
 
 # Games equity.py has evaluators for. 2-7 draw games are excluded - hands
 # only ever fully reveal at showdown there too, but modeling a draw (players
@@ -151,9 +175,9 @@ FLOP_STREET_BOARD_CARDS = {"hole cards": 0, "flop": 3, "turn": 4, "river": 5}
 # ("completed"/open-equivalent), 2 raises = bet 3 ("3-bet"), etc. - same
 # counting flop games use with the big blind as bet 1.
 RAISE_ACTION_RE = re.compile(
-    r"^(\S+): (?:raises \$?[\d,]+(?:\.\d+)? to \$?[\d,]+(?:\.\d+)?|completes it to \$?[\d,]+(?:\.\d+)?)", re.MULTILINE
+    rf"^{NAME}: (?:raises \$?[\d,]+(?:\.\d+)? to \$?[\d,]+(?:\.\d+)?|completes it to \$?[\d,]+(?:\.\d+)?)", re.MULTILINE
 )
-CALL_ACTION_RE = re.compile(r"^(\S+): calls \$?[\d,]+(?:\.\d+)?", re.MULTILINE)
+CALL_ACTION_RE = re.compile(rf"^{NAME}: calls \$?[\d,]+(?:\.\d+)?", re.MULTILINE)
 STUD_GAME_TYPES = {"Razz", "Stud", "Stud Hi/Lo"}
 
 GAME_TYPE_MAP = [
@@ -174,9 +198,21 @@ GAME_TYPE_MAP = [
     (re.compile(r"Badugi", re.I), "Badugi"),
     (re.compile(r"5 Card Draw", re.I), "5 Card Draw"),
     (re.compile(r"Hold'?em", re.I), "Hold'em"),
+    # "All-In Poker" is Hold'em - same two hole cards, same board, same hand
+    # rankings - with a betting structure that only allows shoving or
+    # folding. PokerStars never writes "Hold'em" in its description, so it
+    # used to fall through to "Unknown", which meant no replayer and no
+    # all-in EV for any of those hands. The structure is what differs, and
+    # that already has a home in limit_type.
+    (re.compile(r"All-?In Poker", re.I), "Hold'em"),
 ]
 
 LIMIT_TYPE_MAP = [
+    # Ahead of "No Limit", which the All-In Poker description also contains.
+    # Keeping it as its own structure stops 92 shove-or-fold hands being
+    # averaged into the real No Limit Hold'em numbers, where a VPIP or an
+    # aggression factor from one means nothing about the other.
+    (re.compile(r"All-?In Poker", re.I), "AI"),
     (re.compile(r"No Limit", re.I), "NL"),
     (re.compile(r"Pot Limit", re.I), "PL"),
     (re.compile(r"Limit", re.I), "FL"),
@@ -234,15 +270,28 @@ def _find_hero(text, hero_username=None):
     return name, cards
 
 
-def _opening_round_block(text):
-    """Text of just the first betting round (preflop / 3rd street), used for
-    pot-type classification so later-street action doesn't get counted."""
+def _split_opening_round(text):
+    """(opening round text, everything after it). The opening round is
+    preflop / 3rd street / pre-draw depending on the game."""
     headers = list(STREET_HEADER_RE.finditer(text))
     if not headers:
-        return text
+        return text, ""
     start = headers[0].end()
     end = headers[1].start() if len(headers) > 1 else len(text)
-    return text[start:end]
+    block = text[start:end]
+    # Single Draw prints no header between its two betting rounds - only
+    # "*** DEALING HANDS ***" up front, then discards, then more betting - so
+    # the first discard/stand-pat is what ends the opening round there.
+    m = re.search(r"^.+?: (?:discards \d+ card|stands pat)", block, re.MULTILINE)
+    if m:
+        return block[: m.start()], block[m.start():] + text[end:]
+    return block, text[end:]
+
+
+def _opening_round_block(text):
+    """Text of just the first betting round (preflop / 3rd street / pre-draw),
+    used for pot-type classification so later-street action doesn't get counted."""
+    return _split_opening_round(text)[0]
 
 
 def _big_blind_size(text, stakes, game_type, limit_type):
@@ -288,6 +337,248 @@ def _hero_vpip(text, hero_name):
     block = _opening_round_block(text)
     pattern = re.compile(rf"^{re.escape(hero_name)}: (?:calls|bets|raises|completes it to)\b", re.MULTILINE)
     return bool(pattern.search(block))
+
+
+# The late-position names, filled in backwards from the seat before the
+# button. Only the seats between the big blind and the button get these; the
+# blinds and the button itself are named from the hand history directly.
+_LATE_POSITIONS = ["CO", "HJ", "LJ"]
+
+# Stud has no button or blinds. The forced bet is the bring-in, posted by
+# the worst up-card on 3rd street, and that's the only fixed reference point
+# a stud hand has - so position there is distance from the bring-in.
+BRING_IN_RE = re.compile(rf"^{NAME}: brings in for", re.MULTILINE)
+# Any line where a player does something ("Name: folds", "Name: posts the
+# ante 80"). Used to tell a seat that's in the hand from one that isn't.
+ACTOR_LINE_RE = re.compile(rf"^{NAME}: (?:posts|folds|checks|calls|bets|raises|brings|completes|discards|stands|shows|mucks)\b", re.MULTILINE)
+SMALL_BLIND_POSTER_RE = re.compile(rf"^{NAME}: posts (?:the )?small blind", re.MULTILINE)
+BIG_BLIND_POSTER_RE = re.compile(rf"^{NAME}: posts (?:the )?big blind", re.MULTILINE)
+
+
+def _middle_labels(m):
+    """Labels for the m seats between the big blind and the button.
+
+    Named backwards from the button - CO, HJ, LJ - because it's distance
+    from the button, not from the blinds, that gives a seat its character.
+    Only once those four are used up does a table need UTG names, which is
+    why 6-max reads LJ/HJ/CO with no UTG at all, 7-handed adds UTG, 8-handed
+    UTG+1 and 9-handed UTG+2."""
+    if m <= 0:
+        return []
+    labels = [None] * m
+    i = m - 1
+    for name in _LATE_POSITIONS:
+        if i < 0:
+            break
+        labels[i] = name
+        i -= 1
+    for j in range(i + 1):
+        labels[j] = "UTG" if j == 0 else f"UTG+{j}"
+    return labels
+
+
+def _dealt_in_seats(text):
+    """[(seat_no, name)] for the players in the hand, in seat order.
+
+    The roster lists everyone AT the table, and a seat that isn't in the
+    hand would shift every position after it by one if it were counted.
+
+    "is sitting out" alone isn't enough to rule a seat out, though: the flag
+    also gets set on a player who is in THIS hand but won't be dealt the
+    next one, and they still post and still act. Anyone who does either is
+    kept regardless of the flag."""
+    acted = {m.group(1).strip() for m in ACTOR_LINE_RE.finditer(text)}
+    seats = [
+        (int(no), name.strip())
+        for no, name, tail in SEAT_NO_RE.findall(text)
+        if "sitting out" not in tail or name.strip() in acted
+    ]
+    seats.sort()
+    return seats
+
+
+def _bring_in_position(text, hero_name):
+    """Hero's seat on 3rd street, counted round from the bring-in: "BI",
+    then "+1", "+2" and so on in the order the seats actually act.
+
+    How far the numbering goes depends on how many were dealt in - +5 is the
+    last seat six-handed, +6 seven-handed, +4 five-handed. That does mean a
+    single label covers the last seat at one table size and a middle seat at
+    another, so a positional report spanning several table sizes blurs the
+    late seats together. Filter to one table size to read those cleanly.
+
+    This is 3rd street's order. From 4th onwards the best exposed board acts
+    first, so stud position is a 3rd-street idea - which is where most of
+    the decisions get made."""
+    m = BRING_IN_RE.search(text)
+    if m:
+        bring_in = m.group(1).strip()
+    else:
+        # At antes big enough that the low card is already all-in, there is
+        # no bring-in at all and 3rd street simply opens with a bet. The
+        # seat that acts first is the one the forced bet would have fallen
+        # to, and distance from where the action starts is what this is
+        # measuring either way.
+        opening = _opening_round_block(text)
+        first = ACTOR_LINE_RE.search(opening)
+        if not first:
+            return None
+        bring_in = first.group(1).strip()
+    seats = _dealt_in_seats(text)
+    names = [n for _, n in seats]
+    if bring_in not in names or hero_name not in names:
+        return None
+    offset = (names.index(hero_name) - names.index(bring_in)) % len(names)
+    return "BI" if offset == 0 else f"+{offset}"
+
+
+def _betting_rounds(text):
+    """[(name, block)] one entry per betting round, opening round first.
+
+    Showdown and summary are not betting rounds and are dropped. Single Draw
+    is the awkward one: it prints "*** DEALING HANDS ***" and then nothing
+    until the showdown, so its two rounds share a block and the discard
+    sequence is the only thing separating them."""
+    headers = list(STREET_HEADER_RE.finditer(text))
+    rounds = []
+    for i, h in enumerate(headers):
+        name = h.group(1).lower()
+        if name in ("show down", "summary"):
+            break
+        start = h.end()
+        end = headers[i + 1].start() if i + 1 < len(headers) else len(text)
+        block = text[start:end]
+        if not rounds and name in NON_FLUSH_HEADERS:
+            m = re.search(r"^.+?: (?:discards \d+ card|stands pat)", block, re.MULTILINE)
+            if m:
+                rounds.append((name, block[: m.start()]))
+                rounds.append(("draw", block[m.start():]))
+                continue
+        rounds.append((name, block))
+    return rounds
+
+
+def _streets_seen(text, hero_name):
+    """How many betting rounds past the opening one hero was still in for.
+
+    0 means hero folded in the opening round, or the hand ended there (a
+    walk, or everyone folding to hero's raise). 1 is the flop / 4th street /
+    first draw, and so on. Folding ON a street still counts it - hero saw
+    the cards and made a decision, which is exactly what the stat is asking
+    about."""
+    if not hero_name:
+        return 0
+    rounds = _betting_rounds(text)
+    if not rounds:
+        return 0
+    folds = re.compile(rf"^{re.escape(hero_name)}: folds", re.MULTILINE)
+    if folds.search(rounds[0][1]):
+        return 0
+    seen = 0
+    for _, block in rounds[1:]:
+        seen += 1
+        if folds.search(block):
+            break
+    return seen
+
+
+def _hero_position(text, hero_name):
+    """Hero's seat relative to the button, or None when the game has no
+    button (stud and razz) or the hand doesn't say where it was.
+
+    The blinds and the button are taken from the hand history rather than
+    counted round from the button, because those three are stated outright
+    and counting is what goes wrong when a seat is empty, sitting out, or
+    posting a dead blind. Only the seats in between have to be inferred, and
+    an error there can't leak into the blinds or the button."""
+    if not hero_name:
+        return None
+
+    bm = BUTTON_SEAT_RE.search(text)
+    if not bm:
+        return _bring_in_position(text, hero_name)
+    button_seat = int(bm.group(1))
+
+    sb = SMALL_BLIND_POSTER_RE.search(text)
+    bb = BIG_BLIND_POSTER_RE.search(text)
+    sb_name = sb.group(1).strip() if sb else None
+    bb_name = bb.group(1).strip() if bb else None
+
+    # Heads-up the button posts the small blind, so this order matters: the
+    # seat is the small blind first and the button only incidentally.
+    if sb_name and hero_name == sb_name:
+        return "SB"
+    if bb_name and hero_name == bb_name:
+        return "BB"
+
+    seats = _dealt_in_seats(text)
+    if len(seats) < 2:
+        return None
+    numbers = [no for no, _ in seats]
+    names = [n for _, n in seats]
+    if hero_name not in names:
+        return None
+    if dict(seats).get(button_seat) == hero_name:
+        return "BTN"
+
+    # Everyone left sits between the big blind and the button. Walk round
+    # from the seat after the big blind and stop at the button.
+    if bb_name and bb_name in names:
+        anchor = names.index(bb_name)
+    elif button_seat in numbers:
+        # No big blind posted - the two seats after the button are the blinds.
+        anchor = (numbers.index(button_seat) + 1) % len(seats)
+    else:
+        return None
+
+    # A button parked on a seat that's sitting out is a dead button: nobody
+    # holds that position, and the last player before it acts last. Stopping
+    # at the small blind instead then gives the same walk, minus the button.
+    if button_seat in numbers:
+        stop = numbers.index(button_seat)
+    elif sb_name and sb_name in names:
+        stop = names.index(sb_name)
+    else:
+        return None
+
+    middle = []
+    i = (anchor + 1) % len(seats)
+    while i != stop and len(middle) < len(seats):
+        middle.append(seats[i][1])
+        i = (i + 1) % len(seats)
+    for name, label in zip(middle, _middle_labels(len(middle))):
+        if name == hero_name:
+            return label
+    return None
+
+
+def _hero_raised_opening(text, hero_name):
+    """Hero raised (or, in stud, completed) in the opening round - the
+    mixed-game equivalent of PFR. Completing in stud is the open-raise, not a
+    call, so it belongs on the same line as a raise."""
+    if not hero_name:
+        return False
+    opening = _opening_round_block(text)
+    pattern = re.compile(rf"^{re.escape(hero_name)}: (?:raises|completes it to)\b", re.MULTILINE)
+    return bool(pattern.search(opening))
+
+
+def _postflop_action_counts(text, hero_name):
+    """(bets+raises, calls) for hero after the opening round - the two inputs
+    to aggression factor.
+
+    Kept as raw counts rather than a per-hand ratio because they have to be
+    summed across thousands of hands and divided once at the end. Averaging
+    per-hand ratios would weight a hand where hero acted once the same as one
+    where they acted ten times, and hands with no calls have no ratio at
+    all."""
+    if not hero_name:
+        return 0, 0
+    _, rest = _split_opening_round(text)
+    escaped = re.escape(hero_name)
+    aggressive = len(re.findall(rf"^{escaped}: (?:bets|raises)\b", rest, re.MULTILINE))
+    calls = len(re.findall(rf"^{escaped}: calls\b", rest, re.MULTILINE))
+    return aggressive, calls
 
 
 def _classify_pot_type(text, game_type):
@@ -573,6 +864,11 @@ def parse_hand(raw_text, source_file="", hero_username=None):
     pot_type = _classify_pot_type(raw_text, game_type)
     went_to_showdown = _went_to_showdown(raw_text, hero_name)
     vpip = _hero_vpip(raw_text, hero_name)
+    hero_position = _hero_position(raw_text, hero_name)
+    streets_seen = _streets_seen(raw_text, hero_name)
+    saw_next_street = streets_seen >= 1
+    raised_opening = _hero_raised_opening(raw_text, hero_name)
+    postflop_aggr, postflop_calls = _postflop_action_counts(raw_text, hero_name)
 
     allin_ev = compute_allin_ev(raw_text, game_type, hero_name, hero_cards, went_to_showdown, pot_total)
 
@@ -609,6 +905,12 @@ def parse_hand(raw_text, source_file="", hero_username=None):
         "pot_type": pot_type,
         "went_to_showdown": 1 if went_to_showdown else 0,
         "vpip": 1 if vpip else 0,
+        "hero_position": hero_position,
+        "saw_next_street": 1 if saw_next_street else 0,
+        "streets_seen": streets_seen,
+        "raised_opening": 1 if raised_opening else 0,
+        "postflop_aggr": postflop_aggr,
+        "postflop_calls": postflop_calls,
         "is_allin_ev": 1 if allin_ev else 0,
         "equity_pct": allin_ev["equity_pct"] if allin_ev else None,
         "ev_net": allin_ev["ev_net"] if allin_ev else None,

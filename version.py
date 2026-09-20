@@ -9,4 +9,4 @@ VERSION = "1.1.0"
 # re-read the hand histories so existing hands pick up the fix. Without
 # that, a parsing correction would only ever apply to hands imported after
 # the update, and old ones would quietly keep the wrong numbers.
-PARSER_VERSION = 5
+PARSER_VERSION = 8

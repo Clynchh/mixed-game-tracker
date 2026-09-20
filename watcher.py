@@ -137,10 +137,15 @@ def scan_folder(folder, hero_username=None, on_new_hand=None):
 class FolderWatcher:
     """Runs scan_folder on a background thread every SCAN_INTERVAL_SECONDS."""
 
-    def __init__(self, get_folder_fn, get_username_fn=None, get_tourn_summary_dir_fn=None):
+    def __init__(self, get_folder_fn, get_username_fn=None, get_tourn_summary_dir_fn=None,
+                 on_scan_complete=None):
         self.get_folder_fn = get_folder_fn
         self.get_username_fn = get_username_fn
         self.get_tourn_summary_dir_fn = get_tourn_summary_dir_fn
+        # Called with the number of newly imported hands after each scan.
+        # Used to refresh the static export, which is only worth rebuilding
+        # when a scan actually found something.
+        self.on_scan_complete = on_scan_complete
         self._stop = threading.Event()
         self._thread = None
         self.last_scan_new = 0
@@ -166,6 +171,10 @@ class FolderWatcher:
                     self.last_scan_time = time.time()
                     if self.get_tourn_summary_dir_fn:
                         tourn_summary.scan_folder(self.get_tourn_summary_dir_fn(), hero_username=hero_username)
+                    if self.on_scan_complete:
+                        # Deliberately inside the try: a failing hook must not
+                        # take the scan loop down with it.
+                        self.on_scan_complete(self.last_scan_new)
                 except Exception as e:
                     print(f"[watcher] scan error: {e}")
             self._stop.wait(SCAN_INTERVAL_SECONDS)
